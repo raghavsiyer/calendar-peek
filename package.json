@@ -1,0 +1,11 @@
+{
+  "name": "calendar-peek",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Arc-style calendar preview on hover for Zen Browser (Sine mod)",
+  "scripts": {
+    "test": "TZ=America/Los_Angeles node --test test/*.test.js",
+    "check": "node --check calendar-peek.uc.js"
+  },
+  "license": "MIT"
+}

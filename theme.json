@@ -1,0 +1,32 @@
+{
+  "id": "calendar-peek",
+  "name": "Calendar Peek",
+  "description": "Arc-style schedule preview for pinned or essential calendar tabs. Hover to see today's events, with a Join button when a meeting is about to start. Reads your calendar's iCal feed — no API key, no sign-in.",
+  "author": "Raghav",
+  "version": "1.0.0",
+  "homepage": "https://github.com/raghav/calendar-peek",
+  "readme": "https://raw.githubusercontent.com/raghav/calendar-peek/main/README.md",
+  "image": "https://raw.githubusercontent.com/raghav/calendar-peek/main/cover.png",
+  "ai": "yes",
+  "scripts": {
+    "calendar-peek.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ]
+    }
+  },
+  "preferences": "preferences.json",
+  "fork": [
+    "zen"
+  ],
+  "tags": [
+    "productivity",
+    "arc",
+    "calendar",
+    "google",
+    "icloud",
+    "outlook"
+  ],
+  "createdAt": "2026-10-18",
+  "updatedAt": "2026-10-18"
+}

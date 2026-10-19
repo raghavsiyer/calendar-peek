@@ -1,0 +1,188 @@
+<!doctype html>
+<!--
+  Design preview for the popup — runs the real calendar-peek.uc.js render code
+  in an ordinary browser by stubbing the handful of Zen/Firefox chrome globals
+  it touches. Open this file directly, or run `python3 preview/shot.py` to
+  regenerate cover.png. Nothing here ships inside the mod.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Calendar Peek — preview</title>
+<style>
+  :root {
+    --panel-background: #1c1d22;
+    --panel-color: #ececf1;
+    --panel-border-radius: 12px;
+    --zen-primary-color: #7c9cff;
+    color-scheme: dark;
+  }
+  :root.light {
+    --panel-background: #ffffff;
+    --panel-color: #1d1d21;
+    --zen-primary-color: #4f6df5;
+    color-scheme: light;
+  }
+  html, body { margin: 0; background: transparent; }
+  body {
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 28px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  /* The XUL <panel> doesn't exist here; give it a panel-like frame. */
+  #calpeek-panel {
+    display: block;
+    background: var(--panel-background);
+    color: var(--panel-color);
+    border-radius: var(--panel-border-radius);
+    box-shadow: 0 18px 50px rgba(0,0,0,.45), 0 0 0 1px color-mix(in srgb, var(--panel-color) 12%, transparent);
+    overflow: hidden;
+  }
+  #calpeek-panel .cp-box { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; }
+
+  /* ?cover=1 — README hero layout */
+  html.cover body {
+    width: 1200px; height: 630px; box-sizing: border-box; padding: 0 72px;
+    align-items: center; justify-content: space-between; gap: 48px;
+    background:
+      radial-gradient(900px 500px at 15% 10%, rgba(124,156,255,.28), transparent 60%),
+      radial-gradient(700px 420px at 95% 95%, rgba(255,150,120,.18), transparent 60%),
+      #0f1014;
+  }
+  html.cover .hero { color: #f2f2f6; max-width: 560px; }
+  html.cover .hero .kicker { font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: #9aa6c9; font-weight: 700; }
+  html.cover .hero h1 { font-size: 64px; letter-spacing: -.035em; line-height: 1.02; margin: 12px 0 18px; font-weight: 800; }
+  html.cover .hero p { font-size: 21px; line-height: 1.45; color: #c3c7d4; margin: 0 0 22px; }
+  html.cover .hero .pill { display: inline-block; font-size: 14px; font-weight: 600; color: #dfe4ff; background: rgba(124,156,255,.16); border: 1px solid rgba(124,156,255,.35); border-radius: 999px; padding: 6px 12px; margin-right: 8px; }
+  html.cover #calpeek-panel { flex-shrink: 0; transform: scale(1.12); transform-origin: right center; }
+</style>
+</head>
+<body>
+<div id="mainPopupSet"></div>
+<script>
+  // ---- stubs for the chrome context ----
+  const params = new URLSearchParams(location.search);
+  if (params.get("theme") === "light") document.documentElement.classList.add("light");
+  if (params.get("cover")) {
+    document.documentElement.classList.add("cover");
+    document.addEventListener("DOMContentLoaded", () => {
+      const hero = document.createElement("div");
+      hero.className = "hero";
+      hero.innerHTML = `<div class="kicker">A Sine mod for Zen Browser</div>
+        <h1>Calendar Peek</h1>
+        <p>Hover your pinned calendar tab and today's schedule slides in — with a Join button when a meeting is about to start.</p>
+        <span class="pill">No API key</span><span class="pill">Google · iCloud · Outlook · Proton</span>`;
+      document.body.prepend(hero);
+    });
+  }
+  const FIXED_NOW = Number(params.get("now")) || new Date(2026, 9, 18, 9, 30).getTime();
+  Date.now = () => FIXED_NOW;
+
+  const prefs = {
+    "mod.calendarpeek.feeds": "https://example.invalid/basic.ics",
+    "mod.calendarpeek.days": params.get("days") || "2",
+    "mod.calendarpeek.max_items": "10",
+    "mod.calendarpeek.show_past": params.get("past") || "false",
+  };
+  window.Services = {
+    prefs: {
+      PREF_STRING: 32, PREF_INT: 64, PREF_BOOL: 128,
+      getPrefType: n => (n in prefs ? 32 : 0),
+      getStringPref: n => prefs[n],
+      getIntPref: () => 0, getBoolPref: () => false,
+      addObserver() {}, removeObserver() {},
+    },
+    appinfo: { OS: "Darwin" },
+    io: { newURI: u => u },
+    scriptSecurityManager: { getSystemPrincipal: () => null },
+  };
+  window.gBrowser = { tabs: [], tabContainer: null };
+
+  const ICS = `BEGIN:VCALENDAR
+X-WR-CALNAME:raghav@gmail.com
+BEGIN:VEVENT
+UID:a
+DTSTART;VALUE=DATE:20261018
+DTEND;VALUE=DATE:20261019
+SUMMARY:Midterm week
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:b
+DTSTART;TZID=America/Los_Angeles:20261018T093500
+DTEND;TZID=America/Los_Angeles:20261018T100000
+SUMMARY:PSTAT 120B office hours
+DESCRIPTION:Join Zoom Meeting https://ucsb.zoom.us/j/99999999
+END:VEVENT
+BEGIN:VEVENT
+UID:c
+DTSTART;TZID=America/Los_Angeles:20261018T100000
+DTEND;TZID=America/Los_Angeles:20261018T113000
+SUMMARY:Stats 131A lecture
+LOCATION:Phelps 1260
+END:VEVENT
+BEGIN:VEVENT
+UID:d
+DTSTART;TZID=America/Los_Angeles:20261018T123000
+DTEND;TZID=America/Los_Angeles:20261018T133000
+SUMMARY:Lunch with Ansel
+LOCATION:Freebirds
+END:VEVENT
+BEGIN:VEVENT
+UID:e
+DTSTART;TZID=America/Los_Angeles:20261018T150000
+DTEND;TZID=America/Los_Angeles:20261018T160000
+SUMMARY:CV research sync
+X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij
+END:VEVENT
+BEGIN:VEVENT
+UID:f
+DTSTART;TZID=America/Los_Angeles:20261018T180000
+DTEND;TZID=America/Los_Angeles:20261018T193000
+SUMMARY:Third Sunday dinner
+LOCATION:Goleta
+END:VEVENT
+BEGIN:VEVENT
+UID:g
+DTSTART;VALUE=DATE:20261019
+DTEND;VALUE=DATE:20261020
+SUMMARY:Dad's birthday
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:h
+DTSTART;TZID=America/Los_Angeles:20261019T090000
+DTEND;TZID=America/Los_Angeles:20261019T100000
+SUMMARY:Gym
+END:VEVENT
+BEGIN:VEVENT
+UID:i
+DTSTART;TZID=America/Los_Angeles:20261019T110000
+DTEND;TZID=America/Los_Angeles:20261019T114500
+SUMMARY:Dentist
+LOCATION:Goleta
+END:VEVENT
+END:VCALENDAR`;
+  window.fetch = async () => ({ ok: true, status: 200, text: async () => ICS });
+</script>
+<script src="../calendar-peek.uc.js"></script>
+<script>
+  (async () => {
+    // Wait for boot(), then drive the real render path with a fake Google tab.
+    while (!window.calendarPeek) await new Promise(r => setTimeout(r, 20));
+    const peek = window.calendarPeek;
+    const tab = {
+      getAttribute: a => (a === "data-zen-url" ? "https://calendar.google.com/calendar/u/0/r/week" : null),
+      hasAttribute: () => false, pinned: true,
+    };
+    peek.ensurePanel();
+    peek.currentTab = tab;
+    await peek.getFeeds(true);
+    if (params.get("state") === "setup") prefs["mod.calendarpeek.feeds"] = "";
+    if (params.get("state") === "empty") peek.cache.feeds = [{ name: "x", color: "", events: [] }];
+    peek.render(tab);
+    peek.setRefreshing(false);
+    document.documentElement.setAttribute("data-ready", "1");
+  })();
+</script>
+</body>
+</html>

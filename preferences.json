@@ -1,0 +1,75 @@
+[
+  {
+    "property": "mod.calendarpeek.feeds",
+    "label": "Calendar feeds — one or more iCal (.ics) addresses, separated by spaces. Google: Settings → your calendar → \"Secret address in iCal format\". Optional name: School=https://…",
+    "type": "string",
+    "placeholder": "https://calendar.google.com/calendar/ical/…/basic.ics",
+    "defaultValue": ""
+  },
+  {
+    "property": "mod.calendarpeek.days",
+    "label": "Days to show (1 = today only, 2 = today + tomorrow)",
+    "type": "string",
+    "defaultValue": "2"
+  },
+  {
+    "property": "mod.calendarpeek.max_items",
+    "label": "Max events shown in the preview",
+    "type": "string",
+    "defaultValue": "8"
+  },
+  {
+    "property": "mod.calendarpeek.show_past",
+    "label": "Keep today's finished events in the list (dimmed)",
+    "type": "checkbox",
+    "defaultValue": false
+  },
+  {
+    "property": "mod.calendarpeek.show_badge",
+    "label": "Show a badge on the tab with the number of events left today",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.calendarpeek.join_window",
+    "label": "Minutes before a meeting that the Join button lights up",
+    "type": "string",
+    "defaultValue": "10"
+  },
+  {
+    "property": "mod.calendarpeek.hover_delay",
+    "label": "Hover delay before the preview opens (ms)",
+    "type": "string",
+    "defaultValue": "400"
+  },
+  {
+    "property": "mod.calendarpeek.hide_delay",
+    "label": "Delay before the preview closes after the mouse leaves (ms)",
+    "type": "string",
+    "defaultValue": "150"
+  },
+  {
+    "property": "mod.calendarpeek.refresh_seconds",
+    "label": "Minimum seconds between feed refreshes on hover",
+    "type": "string",
+    "defaultValue": "60"
+  },
+  {
+    "property": "mod.calendarpeek.colors",
+    "label": "Feed colours, in feed order (optional) — e.g. #4285f4 #0b8043",
+    "type": "string",
+    "defaultValue": ""
+  },
+  {
+    "property": "mod.calendarpeek.match",
+    "label": "Extra URL fragments that count as a calendar tab (optional) — e.g. instructure.com/calendar",
+    "type": "string",
+    "defaultValue": ""
+  },
+  {
+    "property": "mod.calendarpeek.require_pinned",
+    "label": "Only react to pinned / Essentials tabs",
+    "type": "checkbox",
+    "defaultValue": false
+  }
+]
