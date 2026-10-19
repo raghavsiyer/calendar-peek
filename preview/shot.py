@@ -28,7 +28,9 @@ def main():
         page = ctx.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        # Chromium can't load the chrome:// font URL the real mod uses; the
+        # local("Inter") fallback covers the preview, so that one is expected.
+        page.on("console", lambda m: m.type == "error" and "chrome://" not in m.text and errors.append(m.text))
         for name, q in SHOTS.items():
             page.goto(URL + q)
             page.wait_for_selector("html[data-ready]", timeout=10000)

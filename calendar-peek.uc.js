@@ -2,7 +2,7 @@
 // @name           Calendar Peek
 // @namespace      calendar-peek
 // @description    Arc-style "what's on today" preview when hovering a pinned calendar tab
-// @version        1.1.0
+// @version        1.3.0
 // @author         Raghav
 // @include        main
 // @ignorecache
@@ -686,7 +686,7 @@
   const SVGNS = "http://www.w3.org/2000/svg";
   const TAG = "[calendar-peek]";
   const PREF = "mod.calendarpeek.";
-  const VERSION = "1.1.0";
+  const VERSION = "1.3.0";
 
   const pref = (name, fallback) => {
     try {
@@ -806,7 +806,30 @@
     return null;
   };
 
+  // Where this script was loaded from (chrome://sine/content/<mod-id>/…), so
+  // the bundled font can be referenced next to it. Falls back to the mod's
+  // default install path, and from there to whatever "Inter" the OS has.
+  const scriptBase = (() => {
+    try {
+      const f = String(Components.stack?.filename || "").split(" -> ").pop();
+      const m = f.match(/^((?:chrome|resource|file):\/\/.*\/)[^/]*$/);
+      if (m) return m[1];
+    } catch {}
+    return "chrome://sine/content/calendar-peek/";
+  })();
+  const FONT_FACE = `
+    @font-face {
+      font-family: "Peek Inter";
+      src: local("Inter Variable"), local("InterVariable"), local("Inter"),
+           url("${scriptBase}fonts/Inter.woff2") format("woff2");
+      font-weight: 100 900;
+      font-display: swap;
+    }
+  `;
+  const FONT_STACK = `"Peek Inter", "Inter", system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", sans-serif`;
+
   const CSS = `
+    ${FONT_FACE}
     #calpeek-panel {
       --cp-bg: var(--panel-background, Field);
       --cp-fg: var(--panel-color, FieldText);
@@ -831,6 +854,9 @@
     #calpeek-panel .cp-box {
       width: 324px;
       font: menu;
+      font-family: ${FONT_STACK};
+      font-size: 13px;
+      -moz-osx-font-smoothing: grayscale;
       color: var(--cp-fg);
       padding: 4px 0 44px;
       position: relative;
@@ -916,7 +942,6 @@
       margin-left: -1px;
       border-radius: 1px;
       background: var(--cp-accent);
-      box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--cp-bg) 85%, transparent);
     }
     #calpeek-panel .cp-nowmark::before {
       content: "";
@@ -1620,7 +1645,7 @@
       clearInterval(this.dotsTimer);
       this.dotsTimer = null;
       const at = this.cache.refreshedAt;
-      const stamp = at ? `Refreshed ${new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : "";
+      const stamp = at ? `Refreshed ${fmtTimeShort(at)}` : "";
       if (on) {
         this.refreshDots = 0;
         status.textContent = "Refreshing.";

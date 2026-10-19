@@ -152,6 +152,9 @@ For the curious; nothing below is required reading.
   A feed that fails keeps its last good copy; the popup says which one broke.
 - Zen's native tab tooltip is suppressed while the popup is open, the same
   way Email Peek does it.
+- Both popups use [Inter](https://rsms.me/inter/) (bundled, Latin subset,
+  SIL OFL — see `fonts/`) so they look the same on Windows, macOS and
+  Linux instead of inheriting each OS's menu font.
 
 ### What changed from Email Peek
 

@@ -2,7 +2,7 @@
 // @name           Gmail Peek
 // @namespace      gmail-peek
 // @description    Arc-style inbox preview when hovering a pinned/essential Gmail tab
-// @version        1.2.1
+// @version        1.3.0
 // @author         malachyfernandez, adapted by Raghav
 // @include        main
 // @ignorecache
@@ -180,7 +180,29 @@
     return null;
   };
 
+  // Same bundled font as Calendar Peek (see fonts/), resolved relative to
+  // wherever Sine loaded this script from.
+  const scriptBase = (() => {
+    try {
+      const f = String(Components.stack?.filename || "").split(" -> ").pop();
+      const m = f.match(/^((?:chrome|resource|file):\/\/.*\/)[^/]*$/);
+      if (m) return m[1];
+    } catch {}
+    return "chrome://sine/content/calendar-peek/";
+  })();
+  const FONT_FACE = `
+    @font-face {
+      font-family: "Peek Inter";
+      src: local("Inter Variable"), local("InterVariable"), local("Inter"),
+           url("${scriptBase}fonts/Inter.woff2") format("woff2");
+      font-weight: 100 900;
+      font-display: swap;
+    }
+  `;
+  const FONT_STACK = `"Peek Inter", "Inter", system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", sans-serif`;
+
   const CSS = `
+    ${FONT_FACE}
     #gmailpeek-panel {
       --gp-bg: var(--panel-background, Field);
       --gp-fg: var(--panel-color, FieldText);
@@ -202,6 +224,9 @@
     #gmailpeek-panel .gp-box {
       width: 324px;
       font: menu;
+      font-family: ${FONT_STACK};
+      font-size: 13px;
+      -moz-osx-font-smoothing: grayscale;
       color: var(--gp-fg);
       padding: 4px 0 44px;
       position: relative;
