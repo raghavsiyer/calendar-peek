@@ -2,7 +2,7 @@
 // @name           Gmail Peek
 // @namespace      gmail-peek
 // @description    Arc-style inbox preview when hovering a pinned/essential Gmail tab
-// @version        1.3.0
+// @version        1.3.1
 // @author         malachyfernandez, adapted by Raghav
 // @include        main
 // @ignorecache
@@ -200,6 +200,43 @@
     }
   `;
   const FONT_STACK = `"Peek Inter", "Inter", system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", sans-serif`;
+
+  // Load the bundled font through the Font Loading API as well, so it still
+  // works if @font-face can't fetch from the mod folder (chrome:// quirks).
+  // Shared by both scripts via window.__peekFontPromise.
+  const ensurePeekFont = log => {
+    if (window.__peekFontPromise) return window.__peekFontPromise;
+    window.__peekFontPromise = (async () => {
+      if (typeof FontFace === "undefined" || !document.fonts) return false;
+      const sources = [`${scriptBase}fonts/Inter.woff2`];
+      try {
+        sources.push(PathUtils.join(PathUtils.profileDir, "chrome", "sine-mods", "calendar-peek", "fonts", "Inter.woff2"));
+      } catch {}
+      for (const src of sources) {
+        try {
+          let buf;
+          if (/^[a-z]+:/i.test(src)) {
+            const res = await fetch(src);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            buf = await res.arrayBuffer();
+          } else {
+            const u8 = await IOUtils.read(src);
+            buf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+          }
+          if (!buf || buf.byteLength < 1000) throw new Error("empty");
+          const face = new FontFace("Peek Inter", buf, { weight: "100 900", display: "swap" });
+          await face.load();
+          document.fonts.add(face);
+          log("font loaded", { from: src });
+          return true;
+        } catch (e) {
+          log("font load failed", { from: src, err: String(e?.message || e) });
+        }
+      }
+      return false;
+    })();
+    return window.__peekFontPromise;
+  };
 
   const CSS = `
     ${FONT_FACE}
@@ -399,6 +436,7 @@
       const style = el("style");
       style.textContent = CSS;
       (document.head || document.documentElement).appendChild(style);
+      ensurePeekFont((m, d) => EPDiag.log("font", m, d));
 
       // Delegated listeners — capture phase so shadow-DOM retargeting and
       // stopPropagation in Zen handlers can't eat them.

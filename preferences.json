@@ -79,6 +79,12 @@
     "defaultValue": false
   },
   {
+    "property": "mod.calendarpeek.debug",
+    "label": "Log Calendar Peek activity to the Browser Console",
+    "type": "checkbox",
+    "defaultValue": false
+  },
+  {
     "type": "text",
     "label": "**Gmail Peek**",
     "size": "15px",
@@ -131,6 +137,12 @@
   {
     "property": "mod.gmailpeek.require_pinned",
     "label": "Only react to pinned / Essentials Gmail tabs",
+    "type": "checkbox",
+    "defaultValue": false
+  },
+  {
+    "property": "mod.gmailpeek.debug",
+    "label": "Log Gmail Peek activity to the Browser Console",
     "type": "checkbox",
     "defaultValue": false
   }
