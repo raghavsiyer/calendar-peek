@@ -36,6 +36,14 @@ def main():
             panel = page.locator("#calpeek-panel")
             panel.screenshot(path=str(HERE / f"{name}.png"), omit_background=True)
             print("wrote", name + ".png")
+        # Gmail popup, both themes.
+        gmail = HERE.joinpath("preview-gmail.html").as_uri()
+        for name, q in {"gmail-dark": "", "gmail-light": "?theme=light"}.items():
+            page.goto(gmail + q)
+            page.wait_for_selector("html[data-ready]", timeout=10000)
+            page.wait_for_timeout(100)
+            page.locator("#gmailpeek-panel").screenshot(path=str(HERE / f"{name}.png"), omit_background=True)
+            print("wrote", name + ".png")
         # README hero: the live state on a 1200×630 canvas.
         page.set_viewport_size({"width": 1200, "height": 630})
         page.goto(URL + "?cover=1&now=1792343100000")

@@ -1,0 +1,1365 @@
+// ==UserScript==
+// @name           Gmail Peek
+// @namespace      gmail-peek
+// @description    Arc-style inbox preview when hovering a pinned/essential Gmail tab
+// @version        1.2.0
+// @author         malachyfernandez, adapted by Raghav
+// @include        main
+// @ignorecache
+// ==/UserScript==
+
+// Runs in chrome://browser/content/browser.xhtml (privileged chrome context).
+// Requires Sine (or fx-autoconfig). No Zen source modifications needed.
+//
+// Adapted from Email Peek (https://github.com/malachyfernandez/email-peek,
+// MIT) — just the Gmail half, restyled to match Calendar Peek, with the
+// file-based diagnostics replaced by an opt-in console log
+// (mod.gmailpeek.debug) and a fix for Google security-alert mail being
+// mistaken for a signed-out session.
+
+(() => {
+  "use strict";
+
+  if (window.gmailPeek) {
+    return;
+  }
+
+  const XHTML = "http://www.w3.org/1999/xhtml";
+  const XUL = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
+  const TAG = "[gmail-peek]";
+  // ---------- diagnostics ----------
+  // Opt-in console logging (mod.gmailpeek.debug = true). Email Peek's original
+  // writes a report file into the profile; this build keeps things in the
+  // Browser Console instead.
+  const safe = fn => { try { return fn(); } catch { return undefined; } };
+  const EPDiag = {
+    log(tag, msg, data) {
+      if (!safe(() => Services.prefs.getBoolPref("mod.gmailpeek.debug", false))) return;
+      try {
+        if (data !== undefined) console.log(TAG, `${tag}: ${msg}`, data);
+        else console.log(TAG, `${tag}: ${msg}`);
+      } catch {}
+    },
+    tabInfo(tab) {
+      const spec = safe(() => tab.linkedBrowser?.currentURI?.spec) ||
+        safe(() => tab._zenPinnedInitialState?.entry?.url) || "";
+      return {
+        url: String(spec).replace(/[?#].*$/, "").slice(0, 120) || "(blank)",
+        pinned: !!safe(() => tab.pinned),
+        essential: !!safe(() => tab.hasAttribute("zen-essential")),
+      };
+    },
+    boot() {},
+  };
+
+  const pref = (name, fallback) => {
+    try {
+      switch (Services.prefs.getPrefType(name)) {
+        case Services.prefs.PREF_STRING:
+          return Services.prefs.getStringPref(name);
+        case Services.prefs.PREF_INT:
+          return Services.prefs.getIntPref(name);
+        case Services.prefs.PREF_BOOL:
+          return Services.prefs.getBoolPref(name);
+      }
+    } catch {}
+    return fallback;
+  };
+  const sPref = (n, f) => String(pref(n, f));
+  const iPref = (n, f) => {
+    const v = parseInt(pref(n, f), 10);
+    return Number.isFinite(v) ? v : f;
+  };
+  const bPref = (n, f) => {
+    const v = pref(n, f);
+    return typeof v === "boolean" ? v : String(v) === "true";
+  };
+
+  // Default account index when a tab's URL doesn't carry /u/N/.
+  const defaultAccount = () =>
+    sPref("mod.gmailpeek.account", "0").trim() || "0";
+  const feedUrl = acct =>
+    `https://mail.google.com/mail/u/${encodeURIComponent(acct)}/feed/atom`;
+  const inboxUrl = acct =>
+    `https://mail.google.com/mail/u/${encodeURIComponent(acct)}/#inbox`;
+  const composeUrl = acct =>
+    `https://mail.google.com/mail/u/${encodeURIComponent(acct)}/#inbox?compose=new`;
+
+  // ContextualIdentityService isn't always a window global in the chrome
+  // context — fall back to the module so container lookups are reliable.
+  const cis = () => {
+    try {
+      return (
+        window.ContextualIdentityService ||
+        ChromeUtils.importESModule(
+          "resource://gre/modules/ContextualIdentityService.sys.mjs"
+        ).ContextualIdentityService
+      );
+    } catch {
+      return null;
+    }
+  };
+
+  const el = (tag, cls, text) => {
+    const node = document.createElementNS(XHTML, tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  };
+
+  // innerHTML doesn't reliably namespace <svg> inside chrome docs, so icons
+  // are built explicitly in the SVG namespace.
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const makeIcon = (paths, size, strokeWidth = 1.7, viewBox = size) => {
+    const svg = document.createElementNS(SVGNS, "svg");
+    svg.setAttribute("width", size);
+    svg.setAttribute("height", size);
+    svg.setAttribute("viewBox", `0 0 ${viewBox} ${viewBox}`);
+    for (const d of paths) {
+      const p = document.createElementNS(SVGNS, "path");
+      p.setAttribute("d", d);
+      p.setAttribute("stroke", "currentColor");
+      p.setAttribute("stroke-width", strokeWidth);
+      p.setAttribute("stroke-linecap", "round");
+      p.setAttribute("stroke-linejoin", "round");
+      p.setAttribute("fill", "none");
+      svg.appendChild(p);
+    }
+    return svg;
+  };
+
+  const timeAgo = iso => {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return "";
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 90) return "now";
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h`;
+    return `${Math.floor(s / 86400)}d`;
+  };
+
+  // A tab element can be <tab class="tabbrowser-tab"> or a custom element —
+  // accept either, plus shadow-retargeted descendants.
+  const asTab = node => {
+    for (let n = node; n && n.nodeType === Node.ELEMENT_NODE; n = n.parentNode) {
+      const name = n.localName;
+      if (
+        name === "tab" ||
+        name === "tabbrowser-tab" ||
+        n.classList?.contains("tabbrowser-tab")
+      ) {
+        return n;
+      }
+      if (name === "tabs" || name === "tabbrowser-tabs" || name === "window") {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const CSS = `
+    #gmailpeek-panel {
+      --gp-bg: var(--panel-background, Field);
+      --gp-fg: var(--panel-color, FieldText);
+      --gp-dim: color-mix(in srgb, var(--gp-fg) 56%, transparent);
+      --gp-faint: color-mix(in srgb, var(--gp-fg) 38%, transparent);
+      --gp-hover: color-mix(in srgb, var(--gp-fg) 7%, transparent);
+      --gp-border: color-mix(in srgb, var(--gp-fg) 13%, transparent);
+      --gp-accent: var(--zen-primary-color, var(--toolbarbutton-icon-fill-attention, #3b82f6));
+    }
+    #gmailpeek-panel {
+      /* Same frame trick as Calendar Peek: draw our own rounded corners. */
+      appearance: none;
+      background-color: Menu;
+      border-radius: calc(var(--panel-border-radius, 12px) + var(--panel-box-shadow-margin, 0px) + 1px);
+    }
+    #gmailpeek-panel::part(content) {
+      border-radius: var(--panel-border-radius, 12px);
+    }
+    #gmailpeek-panel .gp-box {
+      width: 324px;
+      font: menu;
+      color: var(--gp-fg);
+      padding: 4px 0 44px;
+      position: relative;
+      -moz-user-select: none;
+    }
+    #gmailpeek-panel .gp-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 14px 6px;
+    }
+    #gmailpeek-panel .gp-header > span:first-child {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    #gmailpeek-panel .gp-header-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      color: var(--gp-dim);
+      white-space: nowrap;
+    }
+    #gmailpeek-panel .gp-refresh {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--gp-dim);
+      align-self: center;
+    }
+    #gmailpeek-panel .gp-refresh:hover {
+      background: var(--gp-hover);
+      color: var(--gp-fg);
+    }
+    #gmailpeek-panel .gp-refresh.gp-spin svg {
+      animation: gp-rot 0.7s linear infinite;
+    }
+    @keyframes gp-rot {
+      to { transform: rotate(360deg); }
+    }
+    #gmailpeek-panel .gp-row {
+      display: block;
+      margin: 1px 6px;
+      padding: 7px 8px;
+      border-radius: 9px;
+      cursor: pointer;
+      line-height: 16px;
+    }
+    #gmailpeek-panel .gp-row:hover,
+    #gmailpeek-panel .gp-row:focus-visible {
+      background: var(--gp-hover);
+    }
+    #gmailpeek-panel .gp-topline {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    #gmailpeek-panel .gp-author {
+      font-size: 13px;
+      font-weight: 600;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #gmailpeek-panel .gp-time {
+      font-size: 11px;
+      color: var(--gp-faint);
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+    #gmailpeek-panel .gp-subject {
+      font-size: 12.5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #gmailpeek-panel .gp-snippet {
+      font-size: 11.5px;
+      color: var(--gp-dim);
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    #gmailpeek-panel .gp-compose {
+      position: absolute;
+      right: 10px;
+      bottom: 9px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border-radius: 50%;
+      border: 1px solid var(--gp-border);
+      background: var(--gp-bg);
+      color: var(--gp-fg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    #gmailpeek-panel .gp-compose svg {
+      display: block;
+    }
+    #gmailpeek-panel .gp-compose:hover {
+      background: var(--gp-hover);
+    }
+    #gmailpeek-panel .gp-status {
+      padding: 22px 14px 18px;
+      font-size: 12.5px;
+      color: var(--gp-dim);
+      text-align: center;
+    }
+    #gmailpeek-panel .gp-status.gp-link {
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    #gmailpeek-panel .gp-refreshing {
+      position: absolute;
+      left: 14px;
+      bottom: 16px;
+      font-size: 11px;
+      color: var(--gp-faint);
+    }
+  `;
+
+  // Tab internals (.tab-icon-stack etc.) live in the tab's shadow DOM, so the
+  // badge can't be styled with document CSS — it gets inline styles instead.
+  const BADGE_STYLE =
+    "position:absolute;top:-3px;right:-4px;min-width:14px;height:14px;" +
+    "padding:0 3px;border-radius:7px;background:#e5222e;color:#fff;" +
+    "font-size:9.5px;font-weight:700;line-height:14px;text-align:center;" +
+    "pointer-events:none;box-sizing:border-box;";
+
+  class GmailPeek {
+    constructor() {
+      this.hoverTab = null;
+      this.currentTab = null;
+      this.hoverTimer = null;
+      this.hideTimer = null;
+      this.suppressTooltip = false;
+      this.panel = null;
+      this.box = null;
+      this.caches = new Map(); // account -> { t, data, error }
+      this.inflights = new Map(); // account -> Promise
+      this.gmailTabs = new Set();
+      this.boundTabs = new WeakSet();
+      this.refreshSequence = 0;
+      this.refreshing = false;
+      this.dotsTimer = null;
+      this.refreshDots = 0;
+      this._compactHold = null;
+      this._weSetUserShow = false;
+
+      this.onHoverIn = this.onHoverIn.bind(this);
+      this.onHoverOut = this.onHoverOut.bind(this);
+      this.onPopupShowing = this.onPopupShowing.bind(this);
+      this.onClick = this.onClick.bind(this);
+    }
+
+    init() {
+      EPDiag.boot("gmail-peek");
+      const style = el("style");
+      style.textContent = CSS;
+      (document.head || document.documentElement).appendChild(style);
+
+      // Delegated listeners — capture phase so shadow-DOM retargeting and
+      // stopPropagation in Zen handlers can't eat them.
+      for (const evt of ["mouseover", "pointerover"]) {
+        document.addEventListener(evt, this.onHoverIn, true);
+      }
+      for (const evt of ["mouseout", "pointerout"]) {
+        document.addEventListener(evt, this.onHoverOut, true);
+      }
+      document.addEventListener("popupshowing", this.onPopupShowing, true);
+
+      // Watch for tabs being pinned/essential-ified after startup.
+      this.observer = new MutationObserver(() => this.scanTabs());
+      const roots = [
+        gBrowser.tabContainer,
+        document.querySelector(".zen-essentials-container"),
+        document.documentElement,
+      ];
+      const root = roots.find(r => r) || document.documentElement;
+      this.observer.observe(root, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["zen-essential", "pinned", "data-zen-url", "data-zen-pinned-url", "label", "title"],
+        childList: true,
+      });
+
+      try {
+        gBrowser.tabContainer?.addEventListener("TabAttrModified", () => this.scanTabs());
+        gBrowser.tabContainer?.addEventListener("TabPinned", () => this.scanTabs());
+        gBrowser.tabContainer?.addEventListener("TabUnpinned", () => this.scanTabs());
+      } catch {}
+
+      window.addEventListener("unload", () => this.destroy(), { once: true });
+
+      this.badgeInterval = setInterval(() => this.refreshBadge(), 150000);
+
+      this.scanTabs();
+      this.refreshBadge();
+      EPDiag.log("boot", "gmail-peek init complete", { claimed: this.gmailTabs.size });
+    }
+
+    destroy() {
+      EPDiag.log("boot", "gmail-peek destroyed");
+      clearInterval(this.badgeInterval);
+      clearInterval(this.dotsTimer);
+      clearTimeout(this.hoverTimer);
+      clearTimeout(this.hideTimer);
+      this.observer?.disconnect();
+      document.removeEventListener("mouseover", this.onHoverIn, true);
+      document.removeEventListener("pointerover", this.onHoverIn, true);
+      document.removeEventListener("mouseout", this.onHoverOut, true);
+      document.removeEventListener("pointerout", this.onHoverOut, true);
+      document.removeEventListener("popupshowing", this.onPopupShowing, true);
+      this.releaseCompactSidebar();
+      this.panel?.remove();
+      for (const tab of this.gmailTabs) {
+        (tab.shadowRoot || tab).querySelector(".gmailpeek-badge")?.remove();
+      }
+      window.gmailPeek = null;
+    }
+
+    // ---------- tab detection ----------
+
+    tabUrl(tab) {
+      return (
+        tab.linkedBrowser?.currentURI?.spec ||
+        tab._zenPinnedInitialState?.entry?.url ||
+        tab.getAttribute?.("data-zen-url") ||
+        ""
+      );
+    }
+
+    // Resolve a tab's URL. Zen workspace tabs don't carry data-zen-url
+    // (only Essentials do) and hibernated/lazy tabs have a blank
+    // linkedBrowser.currentURI, so check several sources.
+    tabUrl(tab) {
+      if (!tab) return "";
+      let url = "";
+      try {
+        if (typeof window.gBrowser?.getTabURL === "function") {
+          url = window.gBrowser.getTabURL(tab);
+        }
+      } catch {}
+      if (url && typeof url === "string" && url !== "about:blank") return url;
+
+      const candidates = [
+        tab.getAttribute?.("data-zen-url"),
+        tab.getAttribute?.("data-zen-pinned-url"),
+        tab.getAttribute?.("zen-tab-url"),
+        tab.getAttribute?.("url"),
+        tab._zenPinnedInitialState?.entry?.url,
+        tab.linkedBrowser?.currentURI?.spec,
+        tab.linkedBrowser?.registeredOpenURI?.spec,
+        tab.linkedBrowser?.userTypedValue,
+      ];
+      for (const c of candidates) {
+        if (typeof c === "string" && c && c !== "about:blank") return c;
+      }
+      return "";
+    }
+
+    // Which Gmail account (/u/N/) a tab belongs to. Falls back to the
+    // mod.gmailpeek.account pref when the URL carries no index.
+    accountForTab(tab) {
+      const specs = [
+        this.tabUrl(tab),
+        tab._zenPinnedInitialState?.entry?.url,
+        tab.linkedBrowser?.currentURI?.spec,
+        tab.getAttribute?.("data-zen-url"),
+        tab.getAttribute?.("data-zen-pinned-url"),
+        tab.getAttribute?.("zen-tab-url"),
+      ];
+      for (const spec of specs) {
+        const m = typeof spec === "string"
+          ? spec.match(/mail\.google\.com\/mail\/u\/(\d+)\//)
+          : null;
+        if (m) return m[1];
+      }
+      return defaultAccount();
+    }
+
+    // Which Multi-Account Container (userContextId) a tab lives in.
+    // 0 = default context. Property and attribute are authoritative; the
+    // Zen-workspace and container-name checks are last-resort heuristics.
+    containerForTab(tab) {
+      if (!tab) return 0;
+      if (tab.userContextId !== undefined && tab.userContextId !== null) {
+        const id = parseInt(tab.userContextId, 10);
+        if (!isNaN(id) && id > 0) return id;
+      }
+      const attr = tab.getAttribute?.("usercontextid") || tab.linkedBrowser?.getAttribute?.("usercontextid");
+      if (attr) {
+        const id = parseInt(attr, 10);
+        if (!isNaN(id) && id > 0) return id;
+      }
+      try {
+        const wsId = tab.getAttribute?.("zen-workspace-id") || window.gZenWorkspaces?.activeWorkspace;
+        if (wsId && window.gZenWorkspaces) {
+          const ws = window.gZenWorkspaces.getWorkspaceFromId(wsId);
+          if (ws?.containerTabId) {
+            return parseInt(ws.containerTabId, 10);
+          }
+        }
+      } catch {}
+      try {
+        const tooltip = tab.getAttribute?.("tooltiptext") || tab.getAttribute?.("label") || "";
+        const cisSvc = cis();
+        if (cisSvc) {
+          for (const ident of cisSvc.getPublicIdentities()) {
+            if (ident.name && (tooltip.endsWith(ident.name) || tooltip.includes(`(${ident.name})`) || tooltip.includes(` ${ident.name}`))) {
+              return ident.userContextId;
+            }
+          }
+        }
+      } catch {}
+      return 0;
+    }
+
+    // Cache/badge key: account@container so separate inboxes never collide.
+    cacheKeyForTab(tab) {
+      return `${this.accountForTab(tab)}@${this.containerForTab(tab)}`;
+    }
+
+    isGmailTab(tab) {
+      if (!tab) return false;
+      const requirePinned = bPref("mod.gmailpeek.require_pinned", false);
+      const pinnedLike =
+        tab.pinned || tab.hasAttribute("zen-essential") || tab.hasAttribute("pinned");
+      if (requirePinned && !pinnedLike) return false;
+
+      const url = this.tabUrl(tab);
+      if (url && /^https?:\/\/mail\.google\.com\//i.test(url)) {
+        return true;
+      }
+      // A resolved non-Gmail URL settles it — the label/tooltip/favicon
+      // fallbacks below only run when the URL can't be resolved at all
+      // (Zen workspace / hibernated lazy tabs), since they can match pages
+      // that merely mention Gmail.
+      if (url) return false;
+
+      const label = tab.getAttribute?.("label") || tab.label || "";
+      const tooltip =
+        tab.getAttribute?.("tooltiptext") ||
+        tab.getAttribute?.("title") ||
+        "";
+      // Gmail tab titles look like "Inbox (3) - user@gmail.com",
+      // "user@x.com - Gmail", or a bare "Gmail". A bare \bGmail\b would
+      // claim pages that merely mention Gmail ("Arc-style Gmail preview…").
+      const gmailTitle =
+        /gmail\.com|\bGmail\s*[-–:]|[-–]\s*Gmail\b|^\s*Gmail\s*$/i;
+      if (gmailTitle.test(label) || gmailTitle.test(tooltip)) {
+        return true;
+      }
+
+      const image = tab.getAttribute?.("image") || tab.image || "";
+      if (/gmail/i.test(image)) {
+        return true;
+      }
+
+      return false;
+    }
+
+    scanTabs() {
+      let scanned = 0, claimed = 0;
+      this.scanMisses ||= new WeakSet();
+      for (const tab of gBrowser.tabs) {
+        scanned++;
+        if (!this.isGmailTab(tab)) {
+          if (this.gmailTabs.delete(tab)) {
+            // Claimed while its URL was unresolved (lazy/workspace tab) —
+            // now that it resolves elsewhere, release it and any badge.
+            this.boundTabs.delete(tab);
+            (tab.shadowRoot || tab)
+              .querySelector?.(".gmailpeek-badge")
+              ?.remove();
+            EPDiag.log("scan", "tab unclaimed", {
+              provider: "Gmail",
+              tab: EPDiag.tabInfo(tab),
+            });
+          }
+          const info = EPDiag.tabInfo(tab);
+          const candidate = /mail\.google\.com/i.test(info.url);
+          if ((tab.pinned || tab.hasAttribute("zen-essential")) && candidate && !this.scanMisses.has(tab)) {
+            EPDiag.log("scan", "pinned provider URL not matched", { provider: "Gmail", tab: info });
+            this.scanMisses.add(tab);
+          } else if (!candidate) this.scanMisses.delete(tab);
+          continue;
+        }
+        this.scanMisses.delete(tab);
+        claimed++;
+        this.gmailTabs.add(tab);
+        if (!this.boundTabs.has(tab)) {
+          this.boundTabs.add(tab);
+          // Direct listeners: belt & suspenders in case delegation misses.
+          tab.addEventListener("mouseenter", this.onHoverIn, false);
+          tab.addEventListener("mouseleave", this.onHoverOut, false);
+        }
+      }
+      // Closed tabs stay in the set forever otherwise.
+      for (const tab of this.gmailTabs) {
+        if (!tab.isConnected) {
+          this.gmailTabs.delete(tab);
+          this.boundTabs.delete(tab);
+        }
+      }
+      if (this.lastScanClaimed !== claimed) {
+        this.lastScanClaimed = claimed;
+        EPDiag.log("scan", "provider tab detection", { provider: "Gmail", scanned, matched: claimed });
+      }
+    }
+
+    findGmailTabs() {
+      return [...this.gmailTabs].filter(t => t.isConnected);
+    }
+
+    // ---------- hover handling ----------
+
+    onHoverIn(e) {
+      const tab = asTab(e.target) || asTab(e.currentTarget);
+      if (!tab) {
+        // Pointer over something tab-like that asTab can't resolve means the
+        // markup changed under us — that's the "only a native tooltip shows"
+        // failure users reported.
+        const near = e.target?.closest?.(
+          ".zen-essentials-container, tab, tabbrowser-tab, .tabbrowser-tab"
+        );
+        if (near) {
+          EPDiag.log("hover", "unresolved hover target", {
+            localName: e.target?.localName,
+            cls: String(e.target?.className?.baseVal ?? e.target?.className ?? "").slice(0, 80),
+            near: near.localName,
+          });
+        }
+        return;
+      }
+      if (!this.isGmailTab(tab)) return;
+      if (this.hoverTab === tab) return;
+      this.enterTab(tab);
+    }
+
+    onHoverOut(e) {
+      const tab = asTab(e.target) || asTab(e.currentTarget);
+      if (!tab || tab !== this.hoverTab) return;
+      if (e.relatedTarget && tab.contains(e.relatedTarget)) return;
+      this.leaveTab();
+    }
+
+    enterTab(tab) {
+      this.hoverTab = tab;
+      this.currentTab = tab;
+      this.stripTooltip(tab);
+      this.suppressTooltip = true;
+      clearTimeout(this.hoverTimer);
+      EPDiag.log("hover", "enter", EPDiag.tabInfo(tab));
+      this.hoverTimer = setTimeout(() => {
+        this.show(tab).catch(err => {
+          EPDiag.log("popup", "show failed", String(err?.message || err));
+          console.warn(TAG, "show failed:", err);
+        });
+      }, iPref("mod.gmailpeek.hover_delay", 400));
+    }
+
+    leaveTab() {
+      clearTimeout(this.hoverTimer);
+      if (this.hoverTab) {
+        EPDiag.log("hover", "leave", {
+          panelState: this.panel?.state,
+          tab: EPDiag.tabInfo(this.hoverTab),
+        });
+        this.restoreTooltip(this.hoverTab);
+      }
+      this.hoverTab = null;
+      this.suppressTooltip = false;
+      if (this.panel && this.panel.state !== "closed") this.scheduleHide();
+    }
+
+    stripTooltip(tab) {
+      if (tab._gpTooltip === undefined) {
+        tab._gpTooltip = {};
+        for (const a of ["tooltip", "tooltiptext", "title", "data-tooltip"]) {
+          if (tab.hasAttribute(a)) tab._gpTooltip[a] = tab.getAttribute(a);
+        }
+      }
+      for (const a of Object.keys(tab._gpTooltip)) tab.removeAttribute(a);
+    }
+
+    restoreTooltip(tab) {
+      if (!tab?._gpTooltip) return;
+      for (const [a, v] of Object.entries(tab._gpTooltip)) {
+        tab.setAttribute(a, v);
+      }
+      tab._gpTooltip = undefined;
+    }
+
+    onPopupShowing(e) {
+      if (!this.suppressTooltip && !this.hoverTab) return;
+      const t = e.target;
+      if (t === this.panel || this.panel?.contains?.(t)) return;
+      const id = `${t.localName || ""} ${t.id || ""} ${t.className || ""}`;
+      const trigger =
+        t.triggerNode || document.tooltipNode || null;
+      const isOurs = trigger && (trigger === this.hoverTab ||
+        this.hoverTab?.contains(trigger));
+      if (/tooltip/i.test(id) || isOurs) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+
+    // ---------- feed ----------
+
+    // The mod fetches from the chrome context. For the default context the
+    // request rides the tab's own cookieJarSettings (and, when the tab is a
+    // live google page, its principal so SameSite=Lax cookies attach). A
+    // Gmail session inside a Multi-Account Container lives in that
+    // container's jar instead, which fetch() can't reach — those go through
+    // fetchContainerText below (no OAuth or third-party API needed).
+    jarInitFor(tab) {
+      const init = { credentials: "include", cache: "no-cache" };
+      try {
+        const bc = tab?.linkedBrowser?.browsingContext;
+        const cjs =
+          bc?.cookieJarSettings || bc?.currentWindowGlobal?.cookieJarSettings;
+        if (cjs) {
+          init.cookieJarSettings = cjs;
+          const ucid = cjs.originAttributes?.userContextId;
+          if (ucid) init._ucid = ucid; // diagnostic only
+        }
+        const tp = tab?.linkedBrowser?.contentPrincipal;
+        if (tp && /(^|\.)google\.com$/i.test(tp.asciiHost || "")) {
+          init.triggeringPrincipal = tp;
+        }
+      } catch {}
+      return init;
+    }
+
+    // Container-jar fetch: a channel whose loading principal carries
+    // { userContextId } reads that container's cookie jar, which fetch()
+    // can't reach from the chrome context.
+    fetchContainerText(url, containerId, meta, t0) {
+      return new Promise((resolve, reject) => {
+        try {
+          const { NetUtil } = ChromeUtils.importESModule("resource://gre/modules/NetUtil.sys.mjs");
+          const uri = Services.io.newURI(url);
+          const principal = Services.scriptSecurityManager.createContentPrincipal(
+            uri,
+            { userContextId: containerId }
+          );
+          const channel = NetUtil.newChannel({
+            uri,
+            contentPolicyType: Ci.nsIContentPolicy.TYPE_SAVEAS_DOWNLOAD,
+            loadingPrincipal: principal,
+            securityFlags:
+              Ci.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_SEC_CONTEXT_IS_NULL |
+              Ci.nsILoadInfo.SEC_COOKIES_INCLUDE,
+            triggeringPrincipal: principal,
+          }).QueryInterface(Ci.nsIHttpChannel);
+
+          channel.setRequestHeader("Cache-Control", "no-cache", false);
+
+          NetUtil.asyncFetch(channel, (inputStream, status, request) => {
+            meta.ms = Date.now() - t0;
+            if (!Components.isSuccessCode(status)) {
+              EPDiag.log("feed", "request threw", { ...meta, err: `nsresult ${status}` });
+              reject(new Error(`Network error (${status})`));
+              return;
+            }
+            try {
+              const http = request.QueryInterface(Ci.nsIHttpChannel);
+              meta.status = http.responseStatus;
+              try {
+                meta.ct = http.getResponseHeader("Content-Type");
+              } catch {}
+              if (http.URI?.spec && http.URI.spec !== url) {
+                meta.finalUrl = http.URI.spec.slice(0, 140);
+              }
+              if (http.responseStatus === 401 || http.responseStatus === 403) {
+                EPDiag.log("feed", "HTTP error", meta);
+                reject(new Error("signed-out"));
+                return;
+              }
+              if (http.responseStatus >= 400) {
+                EPDiag.log("feed", "HTTP error", meta);
+                reject(new Error(`HTTP ${http.responseStatus}`));
+                return;
+              }
+              const data = NetUtil.readInputStreamToString(inputStream, inputStream.available(), { charset: "utf-8" });
+              resolve(data);
+            } catch (e) {
+              reject(e);
+            }
+          });
+        } catch (err) {
+          EPDiag.log("feed", "request threw", { ...meta, err: String(err) });
+          reject(err);
+        }
+      });
+    }
+
+    async fetchFeed(acct, containerId = 0, tab = null) {
+      const url = feedUrl(acct);
+      const t0 = Date.now();
+      const meta = { acct, ctx: containerId };
+      let text;
+      if (containerId > 0) {
+        EPDiag.log("feed", "request", { acct, url, ctx: containerId, via: "xpcom" });
+        text = await this.fetchContainerText(url, containerId, meta, t0);
+      } else {
+        const init = this.jarInitFor(tab);
+        meta.ucid = init._ucid;
+        meta.jar = !!init.cookieJarSettings;
+        meta.tp = !!init.triggeringPrincipal;
+        EPDiag.log("feed", "request", {
+          acct, url, ucid: init._ucid, jar: meta.jar, tp: meta.tp,
+        });
+        let res;
+        try {
+          res = await fetch(url, init);
+        } catch (e) {
+          EPDiag.log("feed", "request threw", { acct, ms: Date.now() - t0, err: String(e) });
+          throw e;
+        }
+        meta.status = res.status;
+        meta.ms = Date.now() - t0;
+        meta.finalUrl = res.url !== url ? res.url.slice(0, 140) : undefined;
+        meta.ct = res.headers?.get?.("content-type") || undefined;
+        if (/ServiceLogin|accounts\.google\.com/.test(res.url)) {
+          EPDiag.log("feed", "redirected to login", meta);
+          throw new Error("signed-out");
+        }
+        if (!res.ok) {
+          EPDiag.log("feed", "HTTP error", meta);
+          throw new Error(
+            `HTTP ${res.status}${init._ucid ? ` · ctx${init._ucid}` : ""}`
+          );
+        }
+        text = await res.text();
+      }
+      // A real Atom feed can legitimately contain "accounts.google.com" —
+      // Google's own security alerts are sent from no-reply@accounts.google.com
+      // and the sender address lands in the feed. Only treat the body as a
+      // login page when it isn't a feed at all.
+      const head = text.slice(0, 500);
+      const looksLikeFeed = /<feed[\s>]/.test(head);
+      if (!looksLikeFeed && /ServiceLogin|accounts\.google\.com/.test(text)) {
+        EPDiag.log("feed", "login page in body", meta);
+        throw new Error("signed-out");
+      }
+      meta.len = text.length;
+      meta.sig = /<feed[\s>]/.test(head) ? "feed"
+        : /<html|<!doctype/i.test(head) ? "html"
+        : /^[\s<]*\?xml/.test(head) ? "xml-other"
+        : "other";
+      const doc = new DOMParser().parseFromString(text, "text/xml");
+      const parserErr = doc.getElementsByTagName("parsererror").length;
+      if (parserErr) meta.parserError = true;
+      const countEl = doc.getElementsByTagNameNS("*", "fullcount")[0];
+      meta.fullcount = countEl?.textContent;
+      meta.entries = doc.getElementsByTagNameNS("*", "entry").length;
+      EPDiag.log("feed", "response", meta);
+      if (parserErr) {
+        throw new Error("signed-out");
+      }
+      const entries = [...doc.getElementsByTagNameNS("*", "entry")].map(e => ({
+        title:
+          e.getElementsByTagNameNS("*", "title")[0]?.textContent?.trim() ||
+          "(no subject)",
+        author:
+          e.getElementsByTagNameNS("*", "name")[0]?.textContent?.trim() || "?",
+        summary:
+          e.getElementsByTagNameNS("*", "summary")[0]?.textContent?.trim() ||
+          "",
+        issued: e.getElementsByTagNameNS("*", "issued")[0]?.textContent || "",
+        link:
+          e.getElementsByTagNameNS("*", "link")[0]?.getAttribute("href") || "",
+      }));
+      const count =
+        parseInt(countEl?.textContent ?? "", 10) || entries.length;
+      return { count, entries };
+    }
+
+    getFeed(acct, containerId = 0, force = false, tab = null) {
+      const key = `${acct}@${containerId}`;
+      let cache = this.caches.get(key);
+      if (!cache) {
+        cache = { t: 0, data: null, error: null };
+        this.caches.set(key, cache);
+      }
+      if (!force && Date.now() - cache.t < 45000) {
+        EPDiag.log("feed", "cache hit", { key, ageMs: Date.now() - cache.t, hasData: !!cache.data, err: cache.error });
+        return Promise.resolve(cache);
+      }
+      EPDiag.log("feed", "get", { acct, ctx: containerId, force });
+      if (!this.inflights.has(key)) {
+        this.inflights.set(
+          key,
+          this.fetchFeed(acct, containerId, tab)
+            .then(data => {
+              const t = Date.now();
+              this.caches.set(key, { t, refreshedAt: t, data, error: null });
+            })
+            .catch(err => {
+              EPDiag.log("feed", "cache error", { key, err: String(err?.message || err) });
+              this.caches.set(key, {
+                t: Date.now(),
+                refreshedAt: cache.refreshedAt || (cache.data ? cache.t : 0),
+                data: null,
+                error: String(err?.message || err),
+              });
+            })
+            .then(() => this.caches.get(key))
+            .finally(() => {
+              this.inflights.delete(key);
+            })
+        );
+      }
+      return this.inflights.get(key);
+    }
+
+    // ---------- panel ----------
+
+    ensurePanel() {
+      if (this.panel) return;
+      const panel = document.createXULElement
+        ? document.createXULElement("panel")
+        : document.createElementNS(XUL, "panel");
+      panel.id = "gmailpeek-panel";
+      panel.setAttribute("noautofocus", "true");
+      panel.setAttribute("consumeoutsideclicks", "false");
+      panel.setAttribute("level", "top");
+      const box = el("div", "gp-box");
+      panel.appendChild(box);
+      (document.getElementById("mainPopupSet") ||
+        document.documentElement).appendChild(panel);
+      panel.addEventListener("mouseenter", () => this.cancelHide());
+      panel.addEventListener("mouseleave", () => this.scheduleHide());
+      panel.addEventListener("popuphidden", () => this.onPanelHidden());
+      box.addEventListener("click", this.onClick);
+      this.panel = panel;
+      this.box = box;
+    }
+
+    async show(tab) {
+      this.ensurePanel();
+      const acct = this.accountForTab(tab);
+      const key = this.cacheKeyForTab(tab);
+      const cached = this.caches.get(key);
+      EPDiag.log("popup", "show", { acct, key, cached: !!cached?.data, err: cached?.error });
+
+      // Show what we have immediately — only cold cache gets the loader.
+      if (cached?.data || cached?.error) {
+        this.render(cached, acct, tab);
+      } else {
+        this.renderLoading();
+      }
+
+      const r = tab.getBoundingClientRect();
+      const sx = window.mozInnerScreenX ?? window.screenX;
+      const sy = window.mozInnerScreenY ?? window.screenY;
+      const x = sx + r.right + 6;
+      const y = sy + r.top;
+      if (this.panel.state === "closed") {
+        this.openPanel(tab, x, y);
+      }
+      this.holdCompactSidebar();
+
+      await this.refresh(tab);
+    }
+
+    // Wayland exposes no usable global screen coordinates, so on Linux the
+    // panel anchors to the tab; other platforms keep the screen-positioned
+    // open the frame styling was tuned for. The other method is always the
+    // fallback if the primary throws.
+    openPanel(tab, x, y) {
+      const anchorFirst = Services.appinfo?.OS === "Linux";
+      try {
+        if (anchorFirst) {
+          this.panel.openPopup(tab, "after_start", 4, 0, false, false);
+        } else {
+          this.panel.openPopupAtScreen(x, y, false);
+        }
+      } catch (err) {
+        EPDiag.log("popup", "primary open failed, retrying", String(err));
+        try {
+          if (anchorFirst) {
+            this.panel.openPopupAtScreen(x, y, false);
+          } else {
+            this.panel.openPopup(tab, "after_start", 4, 0, false, false);
+          }
+        } catch (e2) {
+          EPDiag.log("popup", "open failed", String(e2));
+          console.warn(TAG, "openPopup failed:", e2);
+        }
+      }
+    }
+
+    // ---------- compact-mode sidebar hold ----------
+    // Compact mode auto-hides the sidebar the moment the pointer leaves it —
+    // which would vanish this popup too. zen-user-show is the attribute Zen
+    // toggles for "user pinned this open": it is honoured only while compact
+    // mode is active and no hover timer clears it.
+    compactSidebar() {
+      try {
+        if (
+          document.documentElement.getAttribute("zen-compact-mode") !== "true"
+        )
+          return null;
+      } catch {
+        return null;
+      }
+      return (
+        window.gZenCompactModeManager?.sidebar ||
+        document.getElementById("navigator-toolbox") ||
+        null
+      );
+    }
+
+    holdCompactSidebar() {
+      const sb = this.compactSidebar();
+      if (!sb || this._compactHold === sb) return;
+      this._compactHold = sb;
+      this._weSetUserShow = !sb.hasAttribute("zen-user-show");
+      if (this._weSetUserShow) sb.setAttribute("zen-user-show", "true");
+    }
+
+    releaseCompactSidebar() {
+      const sb = this._compactHold;
+      if (!sb) return;
+      this._compactHold = null;
+      if (!this._weSetUserShow) return;
+      this._weSetUserShow = false;
+      // Pointer still on the strip? Hand back to Zen's own hover tracking so
+      // it collapses naturally on mouse-leave instead of snapping shut.
+      if (sb.matches(":hover")) {
+        try {
+          window.gZenCompactModeManager?._setElementExpandAttribute(sb, true);
+        } catch {}
+      }
+      sb.removeAttribute("zen-user-show");
+    }
+
+    // Keep refresh progress and the last successful refresh time visible
+    // alongside already-rendered content.
+    setRefreshing(on) {
+      this.refreshing = on;
+      let status = this.box.querySelector(".gp-refreshing");
+      if (!status) {
+        status = el("div", "gp-refreshing");
+        status.setAttribute("role", "status");
+        status.setAttribute("aria-live", "polite");
+        this.box.appendChild(status);
+      }
+      clearInterval(this.dotsTimer);
+      this.dotsTimer = null;
+      const key = this.currentTab ? this.cacheKeyForTab(this.currentTab) : "0@0";
+      const cache = this.currentTab && this.caches.get(key);
+      const refreshedAt = cache?.refreshedAt || (cache?.data && cache.t);
+      const stamp = refreshedAt ? `Refreshed ${new Date(refreshedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : "";
+      if (on) {
+        this.refreshDots = 0;
+        status.textContent = "Refreshing.";
+        this.dotsTimer = setInterval(() => {
+          const s = this.box?.querySelector(".gp-refreshing");
+          if (!s) return;
+          this.refreshDots = (this.refreshDots % 3) + 1;
+          s.textContent = "Refreshing" + ".".repeat(this.refreshDots);
+        }, 300);
+      } else {
+        status.textContent = cache?.error
+          ? `Refresh failed${stamp ? " · " + stamp : ""}`
+          : stamp;
+      }
+      this.box.querySelector(".gp-refresh")?.classList.toggle("gp-spin", on);
+    }
+
+    renderLoading() {
+      this.box.replaceChildren(el("div", "gp-status", "Loading inbox…"));
+    }
+
+    render(cache, acct, tab) {
+      const box = this.box;
+      box.replaceChildren();
+      this.setRefreshing(this.refreshing);
+      const containerId = tab ? this.containerForTab(tab) : 0;
+      EPDiag.log("render", "paint", {
+        acct,
+        ctx: containerId,
+        entries: cache?.data?.entries?.length,
+        count: cache?.data?.count,
+        error: cache?.error,
+      });
+      const max = iPref("mod.gmailpeek.max_items", 6);
+      let identityName = "";
+      if (containerId > 0) {
+        try {
+          const id = cis()?.getPublicIdentityFromId(containerId);
+          if (id?.name) identityName = id.name;
+        } catch {}
+      }
+      const multi = new Set(
+        [...this.gmailTabs].map(t => this.cacheKeyForTab(t))
+      ).size > 1;
+
+      const header = el("div", "gp-header");
+      let headerTitle = "Inbox";
+      if (identityName) {
+        headerTitle = `Inbox · ${identityName}`;
+      } else if (multi) {
+        headerTitle = `Inbox · u/${acct}`;
+      }
+      header.appendChild(el("span", null, headerTitle));
+      const right = el("div", "gp-header-right");
+      if (cache.data) {
+        right.appendChild(
+          el("span", null,
+            cache.data.count > 0 ? `${cache.data.count} unread` : "all caught up")
+        );
+      }
+      right.appendChild(this.refreshButton());
+      header.appendChild(right);
+      box.appendChild(header);
+
+      if (cache.error) {
+        const msg =
+          cache.error === "signed-out"
+            ? "Couldn't reach your inbox — click to open Gmail and sign in."
+            : `Couldn't load inbox (${cache.error}).`;
+        const status = el("div", "gp-status gp-link", msg);
+        status.setAttribute("data-open-inbox", "1");
+        box.appendChild(status);
+        box.appendChild(this.composeButton());
+        return;
+      }
+
+      const { count, entries } = cache.data;
+      if (!entries.length) {
+        box.appendChild(el("div", "gp-status", "No unread mail"));
+      } else {
+        for (const entry of entries.slice(0, max)) {
+          const row = el("div", "gp-row");
+          row.setAttribute("data-link", entry.link);
+          const top = el("div", "gp-topline");
+          top.appendChild(el("span", "gp-author", entry.author));
+          top.appendChild(el("span", "gp-time", timeAgo(entry.issued)));
+          row.appendChild(top);
+          row.appendChild(el("div", "gp-subject", entry.title));
+          if (entry.summary) {
+            row.appendChild(el("div", "gp-snippet", entry.summary));
+          }
+          box.appendChild(row);
+        }
+      }
+      box.appendChild(this.composeButton());
+    }
+
+    composeButton() {
+      const btn = el("div", "gp-compose");
+      btn.setAttribute("data-compose", "1");
+      btn.setAttribute("role", "button");
+      btn.setAttribute("aria-label", "Compose");
+      btn.appendChild(makeIcon(["M12 5v14", "M5 12h14"], 13, 2, 24));
+      return btn;
+    }
+
+    refreshButton() {
+      const btn = el("div", "gp-refresh");
+      btn.setAttribute("data-refresh", "1");
+      btn.setAttribute("role", "button");
+      btn.setAttribute("aria-label", "Refresh");
+      btn.appendChild(
+        makeIcon(
+          [
+            "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8",
+            "M21 3v5h-5",
+          ],
+          14,
+          2,
+          24
+        )
+      );
+      return btn;
+    }
+
+    async refresh(tab) {
+      if (!tab) return;
+      const sequence = ++this.refreshSequence;
+      const acct = this.accountForTab(tab);
+      const containerId = this.containerForTab(tab);
+      this.setRefreshing(true);
+      try {
+        const cache = await this.getFeed(acct, containerId, true, tab);
+        if (sequence !== this.refreshSequence || this.currentTab !== tab || this.panel.state === "closed") return;
+        if (cache.data) this.paintBadge(tab, cache.data.count);
+        this.render(cache, acct, tab);
+      } finally {
+        if (sequence === this.refreshSequence && this.currentTab === tab && this.panel.state !== "closed") {
+          this.setRefreshing(false);
+        }
+      }
+    }
+
+    doRefresh() {
+      return this.refresh(this.currentTab);
+    }
+
+    // ---------- interactions ----------
+
+    onClick(e) {
+      const tab = this.currentTab;
+      if (!tab) return;
+      const compose = e.target.closest("[data-compose]");
+      const inboxLink = e.target.closest("[data-open-inbox]");
+      const row = e.target.closest(".gp-row");
+      const acct = this.accountForTab(tab);
+      const refresh = e.target.closest("[data-refresh]");
+      if (refresh) {
+        this.doRefresh();
+        return;
+      }
+      if (compose) {
+        this.navigate(tab, composeUrl(acct));
+        this.hideNow();
+      } else if (inboxLink) {
+        this.navigate(tab, inboxUrl(acct));
+        this.hideNow();
+      } else if (row) {
+        this.navigate(tab, row.getAttribute("data-link") || inboxUrl(acct));
+        this.hideNow();
+      }
+    }
+
+    navigate(tab, url) {
+      EPDiag.log("nav", "open", { url: String(url).split("?")[0].slice(0, 120) });
+      try {
+        gBrowser.selectedTab = tab;
+        tab.linkedBrowser.loadURI(url, {
+          triggeringPrincipal:
+            Services.scriptSecurityManager.getSystemPrincipal(),
+        });
+      } catch (ex) {
+        console.error(TAG, "navigate failed", ex);
+        try {
+          openWebLinkIn(url, "tab");
+        } catch {}
+      }
+    }
+
+    // ---------- badge ----------
+
+    async refreshBadge() {
+      this.scanTabs();
+      const tabs = this.findGmailTabs();
+      if (!tabs.length || !bPref("mod.gmailpeek.show_badge", true)) return;
+      // Group tabs by account + container — one fetch per unique pair.
+      const byKey = new Map();
+      for (const tab of tabs) {
+        const key = this.cacheKeyForTab(tab);
+        if (!byKey.has(key)) {
+          byKey.set(key, {
+            acct: this.accountForTab(tab),
+            containerId: this.containerForTab(tab),
+            tabs: [],
+          });
+        }
+        byKey.get(key).tabs.push(tab);
+      }
+      for (const { acct, containerId, tabs: acctTabs } of byKey.values()) {
+        const cache = await this.getFeed(acct, containerId, false, acctTabs[0]);
+        if (cache.error || !cache.data) continue;
+        for (const tab of acctTabs) {
+          this.paintBadge(tab, cache.data.count);
+        }
+      }
+    }
+
+    paintBadge(tab, count) {
+      // The feed await in refresh() can outlive a claim — a tab that has
+      // since navigated away (or was claimed while lazy and resolves to a
+      // non-Gmail page) must not carry our badge.
+      if (!this.isGmailTab(tab)) {
+        (tab.shadowRoot || tab)
+          .querySelector?.(".gmailpeek-badge")
+          ?.remove();
+        this.gmailTabs.delete(tab);
+        this.boundTabs.delete(tab);
+        return;
+      }
+      EPDiag.log("badge", "paint", { count, tab: EPDiag.tabInfo(tab) });
+      const host =
+        tab.shadowRoot?.querySelector(".tab-icon-stack") ||
+        tab.shadowRoot?.querySelector(".tab-content") ||
+        tab.querySelector(".tab-icon-stack") ||
+        tab.querySelector(".tab-content");
+      if (!host) return;
+      let badge = host.querySelector(".gmailpeek-badge");
+      if (count > 0) {
+        if (getComputedStyle(host).position === "static") {
+          host.style.position = "relative";
+        }
+        if (!badge) {
+          badge = el("span", "gmailpeek-badge");
+          badge.style.cssText = BADGE_STYLE;
+          host.appendChild(badge);
+        }
+        badge.textContent = count > 99 ? "99+" : String(count);
+      } else {
+        badge?.remove();
+      }
+    }
+
+    // ---------- show/hide timers ----------
+
+    scheduleHide() {
+      clearTimeout(this.hideTimer);
+      this.hideTimer = setTimeout(
+        () => this.hideNow(),
+        iPref("mod.gmailpeek.hide_delay", 150)
+      );
+    }
+
+    cancelHide() {
+      clearTimeout(this.hideTimer);
+    }
+
+    hideNow() {
+      clearTimeout(this.hideTimer);
+      if (this.panel && this.panel.state !== "closed") {
+        this.panel.hidePopup();
+      } else {
+        this.onPanelHidden();
+      }
+    }
+
+    onPanelHidden() {
+      EPDiag.log("popup", "hidden");
+      this.refreshSequence++;
+      this.refreshing = false;
+      clearInterval(this.dotsTimer);
+      this.dotsTimer = null;
+      this.releaseCompactSidebar();
+      if (this.hoverTab) this.restoreTooltip(this.hoverTab);
+      this.hoverTab = null;
+      this.currentTab = null;
+      this.suppressTooltip = false;
+    }
+  }
+
+  const boot = () => {
+    try {
+      if (!bPref("mod.gmailpeek.enabled", true)) return;
+      if (!window.gBrowser) {
+        setTimeout(boot, 500);
+        return;
+      }
+      window.gmailPeek = new GmailPeek();
+      window.gmailPeek.init();
+    } catch (err) {
+      EPDiag.log("boot", "gmail-peek boot failed", String(err?.stack || err));
+      console.error(TAG, "boot failed:", err);
+    }
+  };
+
+  if (document.readyState === "complete") {
+    boot();
+  } else {
+    window.addEventListener("load", boot, { once: true });
+    // In case load already fired before we were injected.
+    setTimeout(() => {
+      if (!window.gmailPeek) boot();
+    }, 1500);
+  }
+})();

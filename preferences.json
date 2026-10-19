@@ -1,5 +1,11 @@
 [
   {
+    "type": "text",
+    "label": "**Calendar Peek**",
+    "size": "15px",
+    "margin": "6px 0 2px"
+  },
+  {
     "property": "mod.calendarpeek.feeds",
     "label": "Calendar feeds — one or more iCal (.ics) addresses, separated by spaces. Google: Settings → your calendar → \"Secret address in iCal format\". Optional name: School=https://…",
     "type": "string",
@@ -69,6 +75,55 @@
   {
     "property": "mod.calendarpeek.require_pinned",
     "label": "Only react to pinned / Essentials tabs",
+    "type": "checkbox",
+    "defaultValue": false
+  },
+  {
+    "type": "text",
+    "label": "**Gmail Peek**",
+    "size": "15px",
+    "margin": "16px 0 2px"
+  },
+  {
+    "property": "mod.gmailpeek.enabled",
+    "label": "Gmail Peek — enable hover previews for Gmail tabs (restart Zen after changing)",
+    "type": "checkbox",
+    "defaultValue": true,
+    "restart": true
+  },
+  {
+    "property": "mod.gmailpeek.account",
+    "label": "Fallback Gmail account index — used only when a tab's URL has no /u/N/ in it",
+    "type": "string",
+    "defaultValue": "0"
+  },
+  {
+    "property": "mod.gmailpeek.max_items",
+    "label": "Max emails shown in the preview",
+    "type": "string",
+    "defaultValue": "6"
+  },
+  {
+    "property": "mod.gmailpeek.hover_delay",
+    "label": "Hover delay before the preview opens (ms)",
+    "type": "string",
+    "defaultValue": "400"
+  },
+  {
+    "property": "mod.gmailpeek.hide_delay",
+    "label": "Delay before the preview closes after the mouse leaves (ms)",
+    "type": "string",
+    "defaultValue": "150"
+  },
+  {
+    "property": "mod.gmailpeek.show_badge",
+    "label": "Show an unread-count badge on the tab icon",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.gmailpeek.require_pinned",
+    "label": "Only react to pinned / Essentials Gmail tabs",
     "type": "checkbox",
     "defaultValue": false
   }

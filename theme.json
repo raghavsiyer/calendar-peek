@@ -1,15 +1,24 @@
 {
   "id": "calendar-peek",
-  "name": "Calendar Peek",
-  "description": "Arc-style schedule preview for pinned or essential calendar tabs. Hover to see today's events, with a Join button when a meeting is about to start. Reads your calendar's iCal feed — no API key, no sign-in.",
+  "name": "Calendar & Gmail Peek",
+  "description": "Arc-style hover previews for Zen: today's schedule on your pinned calendar tab (iCal feed — no API key) and your unread mail on your pinned Gmail tab (your existing session — no API key). Join buttons, now-line, badges.",
   "author": "Raghav",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "homepage": "https://github.com/raghavsiyer/calendar-peek",
   "readme": "https://raw.githubusercontent.com/raghavsiyer/calendar-peek/main/README.md",
   "image": "https://raw.githubusercontent.com/raghavsiyer/calendar-peek/main/cover.png",
   "ai": "yes",
   "scripts": {
     "calendar-peek.uc.js": {
+      "name": "Calendar Peek",
+      "description": "Today's schedule on hover of a pinned calendar tab.",
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ]
+    },
+    "gmail-peek.uc.js": {
+      "name": "Gmail Peek",
+      "description": "Unread inbox on hover of a pinned Gmail tab.",
       "include": [
         "chrome://browser/content/browser.xhtml"
       ]
@@ -23,6 +32,7 @@
     "productivity",
     "arc",
     "calendar",
+    "gmail",
     "google",
     "icloud",
     "outlook"
