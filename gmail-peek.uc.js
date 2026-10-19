@@ -2,7 +2,7 @@
 // @name           Gmail Peek
 // @namespace      gmail-peek
 // @description    Arc-style inbox preview when hovering a pinned/essential Gmail tab
-// @version        1.2.0
+// @version        1.2.1
 // @author         malachyfernandez, adapted by Raghav
 // @include        main
 // @ignorecache
@@ -78,8 +78,31 @@
   // Default account index when a tab's URL doesn't carry /u/N/.
   const defaultAccount = () =>
     sPref("mod.gmailpeek.account", "0").trim() || "0";
-  const feedUrl = acct =>
-    `https://mail.google.com/mail/u/${encodeURIComponent(acct)}/feed/atom`;
+  // The Atom feed takes a label after /feed/atom/. Gmail's inbox category
+  // tabs are internal "smart labels", so each tab has its own feed.
+  const CATEGORIES = {
+    primary: "^sq_ig_i_personal",
+    social: "^sq_ig_i_social",
+    promotions: "^sq_ig_i_promo",
+    updates: "^sq_ig_i_notification",
+    forums: "^sq_ig_i_group",
+  };
+  const feedUrl = (acct, label) =>
+    `https://mail.google.com/mail/u/${encodeURIComponent(acct)}/feed/atom` +
+    (label ? `/${encodeURIComponent(label)}` : "");
+  // Categories the user wants hidden (mod.gmailpeek.exclude_categories).
+  const excludedCategories = () => {
+    const names = sPref("mod.gmailpeek.exclude_categories", "social")
+      .toLowerCase().split(/[\s,]+/).filter(Boolean);
+    return [...new Set(names.filter(n => n in CATEGORIES))];
+  };
+  // Which feeds to read: the plain inbox feed when nothing is excluded,
+  // otherwise one feed per remaining category, merged.
+  const feedLabels = () => {
+    const excluded = excludedCategories();
+    if (!excluded.length) return [null];
+    return Object.keys(CATEGORIES).filter(n => !excluded.includes(n)).map(n => CATEGORIES[n]);
+  };
   const inboxUrl = acct =>
     `https://mail.google.com/mail/u/${encodeURIComponent(acct)}/#inbox`;
   const composeUrl = acct =>
@@ -790,8 +813,31 @@
       });
     }
 
+    // One request per feed label (null = the whole inbox), merged newest-first.
+    // Each category feed carries its own <fullcount>, so the unread total is
+    // the sum of the categories you've kept.
     async fetchFeed(acct, containerId = 0, tab = null) {
-      const url = feedUrl(acct);
+      const labels = feedLabels();
+      if (labels.length === 1) return this.fetchLabelFeed(labels[0], acct, containerId, tab);
+      const parts = await Promise.all(labels.map(l => this.fetchLabelFeed(l, acct, containerId, tab)));
+      const seen = new Set();
+      const entries = [];
+      for (const part of parts) {
+        for (const e of part.entries) {
+          const id = (e.link.match(/[?&]message_id=([^&]+)/) || [])[1] || e.link || `${e.author}|${e.title}|${e.issued}`;
+          if (seen.has(id)) continue;
+          seen.add(id);
+          entries.push(e);
+        }
+      }
+      entries.sort((a, b) => (Date.parse(b.issued) || 0) - (Date.parse(a.issued) || 0));
+      const count = parts.reduce((n, p) => n + p.count, 0);
+      EPDiag.log("feed", "merged categories", { labels: labels.length, count, entries: entries.length });
+      return { count, entries };
+    }
+
+    async fetchLabelFeed(label, acct, containerId = 0, tab = null) {
+      const url = feedUrl(acct, label);
       const t0 = Date.now();
       const meta = { acct, ctx: containerId };
       let text;

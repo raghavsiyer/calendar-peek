@@ -99,6 +99,7 @@ In `Settings → Sine → Calendar & Gmail Peek` (or `about:config`):
 | Pref | Default | What |
 | --- | --- | --- |
 | `mod.gmailpeek.enabled` | `true` | Turn the Gmail half off (restart Zen). |
+| `mod.gmailpeek.exclude_categories` | `social` | Inbox categories to hide: any of `social`, `promotions`, `updates`, `forums`. Empty = the whole inbox. |
 | `mod.gmailpeek.account` | `0` | Fallback account index when a tab URL has no `/u/N/`. |
 | `mod.gmailpeek.max_items` | `6` | Emails shown in the popup. |
 | `mod.gmailpeek.hover_delay` | `400` | ms before the preview opens. |
@@ -111,6 +112,14 @@ Gmail Peek reads `https://mail.google.com/mail/u/N/feed/atom` with the
 session you're already signed in with, and Multi-Account Container tabs
 through that container's cookie jar. It needs Gmail signed in; it never
 sees your password. Requires Sine (or fx-autoconfig).
+
+**Categories.** By default the Social tab is left out. Gmail's category
+tabs are internal labels, and the feed accepts a label, so when anything
+is excluded the mod reads one feed per category you've kept
+(`/feed/atom/^sq_ig_i_personal` for Primary, and so on) and merges them —
+the unread count becomes the sum of those categories. Set the pref to
+`social, promotions` to keep only Primary + Updates + Forums, or clear it
+to go back to the single inbox feed.
 
 ## Under the hood
 

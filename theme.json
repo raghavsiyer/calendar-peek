@@ -3,7 +3,7 @@
   "name": "Calendar & Gmail Peek",
   "description": "Arc-style hover previews for Zen: today's schedule on your pinned calendar tab (iCal feed — no API key) and your unread mail on your pinned Gmail tab (your existing session — no API key). Join buttons, now-line, badges.",
   "author": "Raghav",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "homepage": "https://github.com/raghavsiyer/calendar-peek",
   "readme": "https://raw.githubusercontent.com/raghavsiyer/calendar-peek/main/README.md",
   "image": "https://raw.githubusercontent.com/raghavsiyer/calendar-peek/main/cover.png",

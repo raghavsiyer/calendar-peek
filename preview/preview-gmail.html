@@ -33,8 +33,9 @@
     scriptSecurityManager: { getSystemPrincipal: () => null },
   };
   window.gBrowser = { tabs: [], tabContainer: null };
+  let msgId = 0;
   const entry = (title, name, summary, agoMin) => `<entry><title>${title}</title><summary>${summary}</summary>
-    <link rel="alternate" href="https://mail.google.com/mail?account_id=x&amp;message_id=1&amp;view=conv"/>
+    <link rel="alternate" href="https://mail.google.com/mail?account_id=x&amp;message_id=${++msgId}&amp;view=conv"/>
     <issued>${new Date(FIXED_NOW - agoMin * 60000).toISOString()}</issued><author><name>${name}</name><email>x@y.z</email></author></entry>`;
   const FEED = `<?xml version="1.0" encoding="UTF-8"?><feed version="0.3" xmlns="http://purl.org/atom/ns#"><title>Gmail - Inbox for raghav@gmail.com</title><fullcount>4</fullcount>
     ${entry("PSTAT 120B HW4 posted", "Canvas", "A new assignment is available in PSTAT 120B: HW4, due Friday at 11:59pm.", 12)}

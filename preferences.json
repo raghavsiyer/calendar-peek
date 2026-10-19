@@ -92,6 +92,13 @@
     "restart": true
   },
   {
+    "property": "mod.gmailpeek.exclude_categories",
+    "label": "Hide these inbox categories: social, promotions, updates, forums (comma-separated; leave empty to show the whole inbox)",
+    "type": "string",
+    "placeholder": "social",
+    "defaultValue": "social"
+  },
+  {
     "property": "mod.gmailpeek.account",
     "label": "Fallback Gmail account index — used only when a tab's URL has no /u/N/ in it",
     "type": "string",
