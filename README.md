@@ -185,6 +185,12 @@ python3 preview/shot.py       # regenerates preview PNGs and cover.png (needs pl
 `.uc.js` files with a few stubbed chrome globals, so what you see there is
 what Zen renders.
 
+To ship a release, bump `version` **and** `updatedAt` in `theme.json` —
+Sine decides whether an update exists by comparing `updatedAt` with the
+installed copy, so a push without a newer timestamp is invisible to it
+(`npm run release` does both). raw.githubusercontent.com also caches for a
+few minutes, so "Check for updates" can lag a push slightly.
+
 ## Known limitations
 
 - Google's secret iCal feed can lag the web UI by a few minutes after an edit

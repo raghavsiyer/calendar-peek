@@ -5,7 +5,8 @@
   "description": "Arc-style calendar preview on hover for Zen Browser (Sine mod)",
   "scripts": {
     "test": "TZ=America/Los_Angeles node --test test/*.test.js",
-    "check": "node --check calendar-peek.uc.js && node --check gmail-peek.uc.js"
+    "check": "node --check calendar-peek.uc.js && node --check gmail-peek.uc.js",
+    "release": "node scripts/release.js"
   },
   "license": "MIT"
 }
