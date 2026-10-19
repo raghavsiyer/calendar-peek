@@ -20,9 +20,9 @@
   },
   {
     "property": "mod.calendarpeek.show_past",
-    "label": "Keep today's finished events in the list (dimmed)",
+    "label": "Show today's finished events, dimmed, above the now-line",
     "type": "checkbox",
-    "defaultValue": false
+    "defaultValue": true
   },
   {
     "property": "mod.calendarpeek.show_badge",

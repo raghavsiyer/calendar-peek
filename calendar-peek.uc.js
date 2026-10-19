@@ -2,7 +2,7 @@
 // @name           Calendar Peek
 // @namespace      calendar-peek
 // @description    Arc-style "what's on today" preview when hovering a pinned calendar tab
-// @version        1.0.0
+// @version        1.1.0
 // @author         Raghav
 // @include        main
 // @ignorecache
@@ -686,7 +686,7 @@
   const SVGNS = "http://www.w3.org/2000/svg";
   const TAG = "[calendar-peek]";
   const PREF = "mod.calendarpeek.";
-  const VERSION = "1.0.0";
+  const VERSION = "1.1.0";
 
   const pref = (name, fallback) => {
     try {
@@ -881,6 +881,114 @@
       animation: cp-rot 0.7s linear infinite;
     }
     @keyframes cp-rot { to { transform: rotate(360deg); } }
+    /* Day timeline: the shape of today, with a marker for now. */
+    #calpeek-panel .cp-timeline {
+      position: relative;
+      height: 34px;
+      margin: 2px 14px 0;
+    }
+    #calpeek-panel .cp-track {
+      position: absolute;
+      left: 0; right: 0; top: 13px;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--cp-hover);
+    }
+    #calpeek-panel .cp-block {
+      position: absolute;
+      top: 13px;
+      height: 6px;
+      min-width: 3px;
+      border-radius: 3px;
+      background: var(--cp-color, var(--cp-accent));
+      opacity: 0.75;
+    }
+    #calpeek-panel .cp-block.cp-past { opacity: 0.28; }
+    #calpeek-panel .cp-block.cp-live {
+      opacity: 1;
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--cp-color, var(--cp-accent)) 28%, transparent);
+    }
+    #calpeek-panel .cp-nowmark {
+      position: absolute;
+      top: 8px;
+      width: 2px;
+      height: 16px;
+      margin-left: -1px;
+      border-radius: 1px;
+      background: var(--cp-accent);
+      box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--cp-bg) 85%, transparent);
+    }
+    #calpeek-panel .cp-nowmark::before {
+      content: "";
+      position: absolute;
+      left: -2px; top: -3px;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--cp-accent);
+    }
+    #calpeek-panel .cp-nowlabel {
+      position: absolute;
+      top: -5px;
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      color: var(--cp-accent);
+      white-space: nowrap;
+      transform: translateX(-50%);
+    }
+    #calpeek-panel .cp-nowlabel.cp-edge-l { transform: none; }
+    #calpeek-panel .cp-nowlabel.cp-edge-r { transform: translateX(-100%); }
+    #calpeek-panel .cp-hour {
+      position: absolute;
+      top: 22px;
+      font-size: 9.5px;
+      color: var(--cp-faint);
+    }
+    #calpeek-panel .cp-hour.cp-r { right: 0; }
+    /* The "now" rule inside the list, Google-Calendar style. */
+    #calpeek-panel .cp-nowline {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 1px 6px;
+      padding: 0 8px;
+      height: 14px;
+    }
+    #calpeek-panel .cp-nowtime {
+      width: 56px;
+      flex-shrink: 0;
+      text-align: right;
+      font-size: 10px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--cp-accent);
+    }
+    #calpeek-panel .cp-nowrule {
+      position: relative;
+      flex: 1;
+      height: 2px;
+      border-radius: 1px;
+      background: var(--cp-accent);
+    }
+    #calpeek-panel .cp-nowrule::before {
+      content: "";
+      position: absolute;
+      left: -2px; top: -2px;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--cp-accent);
+    }
+    #calpeek-panel .cp-more.cp-earlier {
+      cursor: pointer;
+      padding: 3px 14px 2px 79px;
+      text-align: left;
+    }
+    #calpeek-panel .cp-more.cp-earlier:hover { color: var(--cp-dim); }
+    #calpeek-panel .cp-done {
+      padding: 10px 14px 6px 79px;
+      font-size: 12px;
+      color: var(--cp-dim);
+    }
     #calpeek-panel .cp-dayhead {
       display: flex;
       justify-content: space-between;
@@ -912,7 +1020,7 @@
     #calpeek-panel .cp-row:focus-visible {
       background: var(--cp-hover);
     }
-    #calpeek-panel .cp-row.cp-past { opacity: 0.45; }
+    #calpeek-panel .cp-row.cp-past { opacity: 0.5; }
     #calpeek-panel .cp-time {
       width: 56px;
       flex-shrink: 0;
@@ -1408,12 +1516,10 @@
       return this.inflight;
     }
 
+    // Always includes today's finished events; render() decides what to show.
     agenda(now = Date.now()) {
       const feeds = this.cache.feeds || [];
-      return CalendarCore.buildAgenda(feeds, now, {
-        days: iPref("days", 2),
-        showPast: bPref("show_past", false),
-      });
+      return CalendarCore.buildAgenda(feeds, now, { days: iPref("days", 2), showPast: true });
     }
 
     // ---------- panel ----------
@@ -1611,7 +1717,7 @@
           sideUsed = true;
         }
       }
-      if (it.join) {
+      if (it.join && (!isToday || it.end > now)) {
         const startsSoon = isToday && !it.allDay && it.end > now &&
           it.start - now <= iPref("join_window", 10) * 60000;
         const join = el("span", "cp-join" + (startsSoon ? " cp-hot" : ""), "Join");
@@ -1626,6 +1732,55 @@
 
     multiFeed() {
       return (this.cache.feeds?.length || 0) > 1;
+    }
+
+    // A slim strip showing the shape of the day — blocks for each timed
+    // event, a marker for right now — so you can see where you are at a glance.
+    timeline(timed, now) {
+      if (!timed.length) return null;
+      const H = 3600000;
+      const d0 = new Date(now); d0.setHours(0, 0, 0, 0);
+      const dayStart = d0.getTime();
+      const hourOf = t => (t - dayStart) / H;
+      let startH = Math.min(7, Math.floor(hourOf(Math.min(...timed.map(it => it.start)))), Math.floor(hourOf(now)));
+      let endH = Math.max(21, Math.ceil(hourOf(Math.max(...timed.map(it => it.end)))), Math.ceil(hourOf(now) + 0.5));
+      startH = Math.max(0, startH);
+      endH = Math.min(24, Math.max(endH, startH + 2));
+      const t0 = dayStart + startH * H, t1 = dayStart + endH * H, span = t1 - t0;
+      const pct = t => Math.max(0, Math.min(100, ((t - t0) / span) * 100));
+
+      const wrap = el("div", "cp-timeline");
+      wrap.appendChild(el("div", "cp-track"));
+      for (const it of timed) {
+        const b = el("div", "cp-block");
+        const a = pct(it.start), z = pct(it.end);
+        b.style.left = `${a}%`;
+        b.style.width = `${Math.max(z - a, 0.8)}%`;
+        if (it.color) b.style.setProperty("--cp-color", it.color);
+        if (it.end <= now) b.classList.add("cp-past");
+        else if (it.start <= now) b.classList.add("cp-live");
+        b.setAttribute("title", `${it.summary} · ${fmtTimeShort(it.start)}–${fmtTimeShort(it.end)}`);
+        wrap.appendChild(b);
+      }
+      const p = pct(now);
+      const mark = el("div", "cp-nowmark");
+      mark.style.left = `${p}%`;
+      wrap.appendChild(mark);
+      const label = el("div", "cp-nowlabel", fmtTimeShort(now));
+      label.style.left = `${p}%`;
+      if (p < 9) label.classList.add("cp-edge-l");
+      else if (p > 91) label.classList.add("cp-edge-r");
+      wrap.appendChild(label);
+      wrap.appendChild(el("div", "cp-hour cp-l", fmtTimeShort(t0)));
+      wrap.appendChild(el("div", "cp-hour cp-r", endH === 24 ? "12am" : fmtTimeShort(t1)));
+      return wrap;
+    }
+
+    nowLine(now) {
+      const line = el("div", "cp-nowline");
+      line.appendChild(el("span", "cp-nowtime", fmtTimeShort(now)));
+      line.appendChild(el("span", "cp-nowrule"));
+      return line;
     }
 
     render(tab) {
@@ -1684,32 +1839,55 @@
       box.appendChild(this.header(agenda));
 
       const max = Math.max(1, iPref("max_items", 8));
+      const PAST_KEEP = 2;
       let shown = 0, hidden = 0;
-      agenda.days.forEach((day, i) => {
-        const isToday = i === 0;
-        if (!isToday) {
-          if (!day.items.length && i > 1) return; // only "Tomorrow" earns an empty row
-          const head = el("div", "cp-dayhead");
-          head.appendChild(el("span", null, i === 1 ? "Tomorrow" : fmtWeekdayLong(day.dayStart)));
-          head.appendChild(el("span", null, fmtMonthDay(day.dayStart)));
-          box.appendChild(head);
-        }
-        if (!day.items.length) {
-          if (isToday) {
-            const empty = el("div", "cp-empty cp-today");
-            empty.appendChild(el("span", "cp-big", agenda.remainingToday === 0 && this.hadEventsToday(now) ? "That's it for today" : "Nothing on today"));
-            empty.appendChild(document.createTextNode("Enjoy the open time."));
-            box.appendChild(empty);
-          } else {
-            box.appendChild(el("div", "cp-empty", "Nothing scheduled"));
+      const add = (it, isToday) => {
+        if (shown >= max) { hidden++; return; }
+        box.appendChild(this.row(it, now, isToday));
+        shown++;
+      };
+
+      // ---- today: all-day → timeline → recent past (dimmed) → now → upcoming
+      const today = agenda.days[0];
+      const allDay = today.items.filter(it => it.allDay);
+      const timed = today.items.filter(it => !it.allDay);
+      const past = timed.filter(it => it.end <= now);
+      const ahead = timed.filter(it => it.end > now);
+
+      if (!timed.length && !allDay.length) {
+        const empty = el("div", "cp-empty cp-today");
+        empty.appendChild(el("span", "cp-big", "Nothing on today"));
+        empty.appendChild(document.createTextNode("Enjoy the open time."));
+        box.appendChild(empty);
+      } else {
+        const strip = this.timeline(timed, now);
+        if (strip) box.appendChild(strip);
+        for (const it of allDay) add(it, true);
+        if (bPref("show_past", true) && past.length) {
+          let visible = past;
+          if (!this.expandPast && past.length > PAST_KEEP) {
+            visible = past.slice(-PAST_KEEP);
+            const more = el("div", "cp-more cp-earlier", `${past.length - PAST_KEEP} earlier…`);
+            more.setAttribute("data-earlier", "1");
+            box.appendChild(more);
           }
-          return;
+          for (const it of visible) add(it, true);
         }
-        for (const it of day.items) {
-          if (shown >= max) { hidden++; continue; }
-          box.appendChild(this.row(it, now, isToday));
-          shown++;
-        }
+        if (timed.length) box.appendChild(this.nowLine(now));
+        for (const it of ahead) add(it, true);
+        if (timed.length && !ahead.length) box.appendChild(el("div", "cp-done", "That's it for today."));
+      }
+
+      // ---- later days
+      agenda.days.slice(1).forEach((day, j) => {
+        const i = j + 1;
+        if (!day.items.length && i > 1) return; // only "Tomorrow" earns an empty row
+        const head = el("div", "cp-dayhead");
+        head.appendChild(el("span", null, i === 1 ? "Tomorrow" : fmtWeekdayLong(day.dayStart)));
+        head.appendChild(el("span", null, fmtMonthDay(day.dayStart)));
+        box.appendChild(head);
+        if (!day.items.length) { box.appendChild(el("div", "cp-empty", "Nothing scheduled")); return; }
+        for (const it of day.items) add(it, false);
       });
       if (hidden) box.appendChild(el("div", "cp-more", `+${hidden} more`));
 
@@ -1723,14 +1901,6 @@
       }
       box.appendChild(this.addButton());
       this.setRefreshing(this.refreshing);
-    }
-
-    // Did anything timed happen earlier today? (Decides the empty-state copy.)
-    hadEventsToday(now) {
-      try {
-        const a = CalendarCore.buildAgenda(this.cache.feeds || [], now, { days: 1, showPast: true });
-        return a.days[0].items.some(it => !it.allDay);
-      } catch { return false; }
     }
 
     async refresh(tab) {
@@ -1765,6 +1935,7 @@
           .finally(() => { if (this.panel?.state === "open") this.setRefreshing(false); });
         return;
       }
+      if (t.closest("[data-earlier]")) { this.expandPast = true; this.render(tab); return; }
       const join = t.closest("[data-join]");
       if (join) { e.stopPropagation(); this.openNewTab(join.getAttribute("data-join")); this.hideNow(); return; }
       if (t.closest("[data-add]")) {
@@ -1886,6 +2057,7 @@
       clearInterval(this.tickTimer);
       this.tickTimer = null;
       this.releaseCompactSidebar();
+      this.expandPast = false;
       if (this.hoverTab) this.restoreTooltip(this.hoverTab);
       this.hoverTab = null;
       this.currentTab = null;

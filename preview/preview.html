@@ -53,7 +53,7 @@
   html.cover .hero h1 { font-size: 64px; letter-spacing: -.035em; line-height: 1.02; margin: 12px 0 18px; font-weight: 800; }
   html.cover .hero p { font-size: 21px; line-height: 1.45; color: #c3c7d4; margin: 0 0 22px; }
   html.cover .hero .pill { display: inline-block; font-size: 14px; font-weight: 600; color: #dfe4ff; background: rgba(124,156,255,.16); border: 1px solid rgba(124,156,255,.35); border-radius: 999px; padding: 6px 12px; margin-right: 8px; }
-  html.cover #calpeek-panel { flex-shrink: 0; transform: scale(1.12); transform-origin: right center; }
+  html.cover #calpeek-panel { flex-shrink: 0; transform: scale(0.98); transform-origin: right center; }
 </style>
 </head>
 <body>
@@ -81,7 +81,7 @@
     "mod.calendarpeek.feeds": "https://example.invalid/basic.ics",
     "mod.calendarpeek.days": params.get("days") || "2",
     "mod.calendarpeek.max_items": "10",
-    "mod.calendarpeek.show_past": params.get("past") || "false",
+    "mod.calendarpeek.show_past": params.get("past") || "true",
   };
   window.Services = {
     prefs: {

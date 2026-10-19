@@ -16,7 +16,8 @@ SHOTS = {
     "setup": "?state=setup",
     "empty": "?state=empty",
     "past": "?past=true&days=1",
-    "live": "?now=1792343400000",  # 10:10 AM — lecture in progress
+    "live": "?now=1792343400000",       # 10:10 AM — lecture in progress
+    "afternoon": "?now=1792359900000",  # 2:45 PM — three events done, sync in 15 min
 }
 
 def main():

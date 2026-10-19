@@ -15,8 +15,10 @@ It's the calendar half of Arc's sidebar peeks, rebuilt as a
 
 ## What you get
 
-- **Today at a glance.** All-day events first, then the rest in order, with
-  finished events tucked away (toggle `show_past` to keep them, dimmed).
+- **Where you are in the day.** A slim timeline strip shows the shape of
+  today — a block per event, a marker for right now — and the list itself has
+  a now-line: the last couple of finished events sit dimmed above it, what's
+  ahead sits below. Earlier ones fold into a `3 earlier…` line.
 - **Now / in 5 min.** The event you're in gets a `Now` chip and a glowing bar;
   anything starting within the hour counts down.
 - **Join.** Meet, Zoom, Teams, Webex, Whereby… links are picked out of the
@@ -70,7 +72,7 @@ In `Settings → Sine → Calendar Peek` (or `about:config`):
 | `mod.calendarpeek.feeds` | — | One or more `.ics` addresses, space-separated. `Name=URL` to label one. |
 | `mod.calendarpeek.days` | `2` | Days to show, starting today (1–14). |
 | `mod.calendarpeek.max_items` | `8` | Events shown before a `+N more` line. |
-| `mod.calendarpeek.show_past` | `false` | Keep today's finished events, dimmed. |
+| `mod.calendarpeek.show_past` | `true` | Show today's finished events, dimmed, above the now-line. |
 | `mod.calendarpeek.show_badge` | `true` | Events-left-today badge on the tab icon. |
 | `mod.calendarpeek.join_window` | `10` | Minutes before a call that Join turns solid. |
 | `mod.calendarpeek.hover_delay` | `400` | ms before the preview opens. |
@@ -100,6 +102,9 @@ For the curious; nothing below is required reading.
 - Join links come from `X-GOOGLE-CONFERENCE`, `X-MICROSOFT-
   SKYPETEAMSMEETINGURL`, `URL`, `LOCATION`, then the description, in that
   order.
+- The timeline runs from 7 AM to 9 PM, stretching to cover anything earlier
+  or later (and the current time). Blocks fade once they're over; the one
+  you're in glows.
 - Clicking an event opens that day in Google Calendar (`/r/day/YYYY/MM/DD`)
   or the event's own `URL` if the feed has one; `+` goes to Google's
   `eventedit` or Outlook's compose deeplink. Other providers just focus the
