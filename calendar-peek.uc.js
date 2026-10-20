@@ -2,7 +2,7 @@
 // @name           Calendar Peek
 // @namespace      calendar-peek
 // @description    Arc-style "what's on today" preview when hovering a pinned calendar tab
-// @version        1.3.1
+// @version        1.3.2
 // @author         Raghav
 // @include        main
 // @ignorecache
@@ -686,7 +686,7 @@
   const SVGNS = "http://www.w3.org/2000/svg";
   const TAG = "[calendar-peek]";
   const PREF = "mod.calendarpeek.";
-  const VERSION = "1.3.1";
+  const VERSION = "1.3.2";
 
   const pref = (name, fallback) => {
     try {

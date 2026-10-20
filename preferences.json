@@ -135,6 +135,12 @@
     "defaultValue": true
   },
   {
+    "property": "mod.gmailpeek.open_in_new_tab",
+    "label": "Open emails in a new tab instead of the Gmail tab",
+    "type": "checkbox",
+    "defaultValue": false
+  },
+  {
     "property": "mod.gmailpeek.require_pinned",
     "label": "Only react to pinned / Essentials Gmail tabs",
     "type": "checkbox",

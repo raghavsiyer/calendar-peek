@@ -105,6 +105,7 @@ In `Settings → Sine → Calendar & Gmail Peek` (or `about:config`):
 | `mod.gmailpeek.hover_delay` | `400` | ms before the preview opens. |
 | `mod.gmailpeek.hide_delay` | `150` | ms before it closes on mouse-out. |
 | `mod.gmailpeek.show_badge` | `true` | Unread badge on the tab icon. |
+| `mod.gmailpeek.open_in_new_tab` | `false` | Open a clicked email in a new tab instead of the Gmail tab itself. |
 | `mod.gmailpeek.require_pinned` | `false` | Only react to pinned / Essentials tabs. |
 | `mod.gmailpeek.debug` | `false` | Log to the Browser Console. |
 
@@ -163,6 +164,10 @@ For the curious; nothing below is required reading.
 - The diagnostics system that wrote `email-peek.log` into your profile and
   added an "About Email Peek" item to the Tools menu is replaced by an
   opt-in Browser Console log (`mod.gmailpeek.debug`).
+- Clicking an email opens it **in the Gmail tab** via Gmail's own
+  `#inbox/<id>` route (no page reload). Upstream's same-tab `loadURI` call
+  passes a string, which current Firefox rejects, so it always fell through
+  to its new-tab fallback.
 - **Bug fix:** the upstream script scans the feed body for
   `accounts.google.com` to detect a login redirect — but Google's own
   security alerts are sent from `no-reply@accounts.google.com`, so any

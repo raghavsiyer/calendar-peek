@@ -2,7 +2,7 @@
 // @name           Gmail Peek
 // @namespace      gmail-peek
 // @description    Arc-style inbox preview when hovering a pinned/essential Gmail tab
-// @version        1.3.1
+// @version        1.3.2
 // @author         malachyfernandez, adapted by Raghav
 // @include        main
 // @ignorecache
@@ -1326,25 +1326,42 @@
         this.navigate(tab, inboxUrl(acct));
         this.hideNow();
       } else if (row) {
-        this.navigate(tab, row.getAttribute("data-link") || inboxUrl(acct));
+        this.navigate(tab, this.messageUrl(acct, row.getAttribute("data-link")));
         this.hideNow();
       }
     }
 
+    // The feed's link is a legacy redirect (/mail?…&message_id=X&view=conv)
+    // that reloads the whole Gmail app. Gmail's own router accepts the same
+    // id after #inbox/, and a hash-only change on an already-open Gmail tab
+    // is a same-document navigation — the conversation just opens.
+    messageUrl(acct, link) {
+      const id = (String(link || "").match(/[?&]message_id=([0-9a-f]+)/i) || [])[1];
+      if (id) return `https://mail.google.com/mail/u/${encodeURIComponent(acct)}/#inbox/${id}`;
+      return link || inboxUrl(acct);
+    }
+
     navigate(tab, url) {
       EPDiag.log("nav", "open", { url: String(url).split("?")[0].slice(0, 120) });
-      try {
-        gBrowser.selectedTab = tab;
-        tab.linkedBrowser.loadURI(url, {
-          triggeringPrincipal:
-            Services.scriptSecurityManager.getSystemPrincipal(),
-        });
-      } catch (ex) {
-        console.error(TAG, "navigate failed", ex);
-        try {
-          openWebLinkIn(url, "tab");
-        } catch {}
+      if (bPref("mod.gmailpeek.open_in_new_tab", false)) {
+        try { openWebLinkIn(url, "tab"); } catch (e) { console.error(TAG, "open failed", e); }
+        return;
       }
+      try { gBrowser.selectedTab = tab; } catch {}
+      const principal = Services.scriptSecurityManager.getSystemPrincipal();
+      // loadURI has taken an nsIURI since Firefox 112; older builds and the
+      // string helper are kept as fallbacks. Last resort is still *this* tab.
+      const attempts = [
+        () => tab.linkedBrowser.loadURI(Services.io.newURI(url), { triggeringPrincipal: principal }),
+        () => tab.linkedBrowser.fixupAndLoadURIString(url, { triggeringPrincipal: principal }),
+        () => tab.linkedBrowser.loadURI(url, { triggeringPrincipal: principal }),
+        () => openWebLinkIn(url, "current"),
+      ];
+      let last = null;
+      for (const attempt of attempts) {
+        try { attempt(); return; } catch (e) { last = e; }
+      }
+      console.error(TAG, "navigate failed", last);
     }
 
     // ---------- badge ----------
